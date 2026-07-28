@@ -2,3 +2,6 @@
 A single player web game thematically based around trying to put out fires and probably a comedy.
 
 play it here: https://rescue-service.pages.dev
+
+<!-- trivial test edit for PR template check validation -->
+
