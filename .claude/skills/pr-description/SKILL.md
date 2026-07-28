@@ -40,6 +40,23 @@ After pushing (and before opening or updating the PR description), get the right
 If you push additional commits after the PR is already open, repeat this and update the
 description — a link to an old commit's deployment will fail the `PR Template Check` job.
 
+## Local precheck before opening/updating the PR
+
+Before calling `create_pull_request` or `update_pull_request`, write the drafted body to a file
+(e.g. in your scratchpad) and validate it locally:
+
+```
+node scripts/check-pr-description.mjs <path-to-body-file>
+```
+
+or pipe it directly: `printf '%s' "$BODY" | node scripts/check-pr-description.mjs`.
+
+This catches missing/empty sections and malformed preview links (e.g. a non-`.pages.dev` host,
+or a missing URL) before you push through the GitHub API. It does **not** verify the link is
+fresh for the current HEAD commit — that requires checking the actual deployment, which only the
+"PR Template Check" CI job does — so still follow the "Getting the correct preview deployment
+link" steps above; don't skip them just because the local check passed.
+
 ## Notes
 
 - Don't skip the wait-for-deployment step by fabricating a URL from the branch name — the
