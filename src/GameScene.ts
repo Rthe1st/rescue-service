@@ -1,6 +1,15 @@
 import Phaser from "phaser";
 
 const GRID_SIZE = 16;
+const CONTROLS_AREA_HEIGHT = 140;
+
+interface Direction {
+  label: string;
+  dRow: number;
+  dCol: number;
+  x: number;
+  y: number;
+}
 
 export class GameScene extends Phaser.Scene {
   private cellSize = 0;
@@ -36,10 +45,11 @@ export class GameScene extends Phaser.Scene {
     endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
 
     this.createBoard(width, height);
+    this.createControls(width);
   }
 
   private createBoard(width: number, height: number): void {
-    const availableSize = Math.min(width, height - 80);
+    const availableSize = Math.min(width, height - 80 - CONTROLS_AREA_HEIGHT);
     this.cellSize = Math.floor(availableSize / GRID_SIZE);
     const boardSize = this.cellSize * GRID_SIZE;
     this.boardOffsetX = (width - boardSize) / 2;
@@ -61,22 +71,54 @@ export class GameScene extends Phaser.Scene {
             isPlayer ? 0x000000 : 0xffffff
           )
           .setOrigin(0, 0)
-          .setStrokeStyle(1, 0x888888)
-          .setInteractive({ useHandCursor: true });
+          .setStrokeStyle(1, 0x888888);
 
-        square.on("pointerdown", () => {
-          this.onSquareClicked(row, col);
-        });
         this.squares.set(squareKey(row, col), square);
       }
     }
   }
 
-  private onSquareClicked(row: number, col: number): void {
-    const dRow = Math.abs(row - this.playerRow);
-    const dCol = Math.abs(col - this.playerCol);
-    const isAdjacent = dRow + dCol === 1;
-    if (!isAdjacent) return;
+  private createControls(width: number): void {
+    const centerX = width / 2;
+    const centerY = 90 + CONTROLS_AREA_HEIGHT / 2;
+    const spacing = 50;
+
+    const directions: Direction[] = [
+      { label: "▲", dRow: -1, dCol: 0, x: centerX, y: centerY - spacing },
+      { label: "▼", dRow: 1, dCol: 0, x: centerX, y: centerY + spacing },
+      { label: "◀", dRow: 0, dCol: -1, x: centerX - spacing, y: centerY },
+      { label: "▶", dRow: 0, dCol: 1, x: centerX + spacing, y: centerY },
+    ];
+
+    for (const direction of directions) {
+      const button = this.add
+        .text(direction.x, direction.y, direction.label, {
+          fontSize: "24px",
+          color: "#ffffff",
+          backgroundColor: "#1565c0",
+          padding: { x: 14, y: 10 },
+        })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
+
+      button.on("pointerover", () =>
+        button.setStyle({ backgroundColor: "#1976d2" })
+      );
+      button.on("pointerout", () =>
+        button.setStyle({ backgroundColor: "#1565c0" })
+      );
+      button.on("pointerdown", () => {
+        this.movePlayer(direction.dRow, direction.dCol);
+      });
+    }
+  }
+
+  private movePlayer(dRow: number, dCol: number): void {
+    const row = this.playerRow + dRow;
+    const col = this.playerCol + dCol;
+    const inBounds =
+      row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE;
+    if (!inBounds) return;
 
     this.getSquare(this.playerRow, this.playerCol).setFillStyle(0xffffff);
     this.getSquare(row, col).setFillStyle(0x000000);
