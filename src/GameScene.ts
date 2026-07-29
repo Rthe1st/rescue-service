@@ -9,6 +9,47 @@ const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 80;
 const MARGIN = 20;
 const CONTROLS_GAP = 20;
+const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
+
+interface GameParams {
+  gridSize: number;
+  cellSizeScale: number;
+  buttonSize: number;
+  buttonSpacing: number;
+}
+
+function isGameParams(value: unknown): value is GameParams {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate["gridSize"] === "number" &&
+    typeof candidate["cellSizeScale"] === "number" &&
+    typeof candidate["buttonSize"] === "number" &&
+    typeof candidate["buttonSpacing"] === "number"
+  );
+}
+
+function loadPresets(): Record<string, GameParams> {
+  try {
+    const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const presets: Record<string, GameParams> = {};
+    for (const [name, value] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (isGameParams(value)) presets[name] = value;
+    }
+    return presets;
+  } catch {
+    return {};
+  }
+}
+
+function savePresets(presets: Record<string, GameParams>): void {
+  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+}
 
 interface Direction {
   label: string;
@@ -98,7 +139,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupDebugGui(): void {
-    const params = {
+    const params: GameParams = {
       gridSize: this.gridSize,
       cellSizeScale: this.cellSizeScale,
       buttonSize: this.buttonFontSize,
@@ -107,7 +148,7 @@ export class GameScene extends Phaser.Scene {
 
     const gui = new GUI({ title: "Game parameters" });
 
-    gui
+    const gridController = gui
       .add(params, "gridSize", 4, 32, 1)
       .name("Number of squares")
       .onChange((value: number) => {
@@ -116,27 +157,87 @@ export class GameScene extends Phaser.Scene {
         this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
         this.layout();
       });
-    gui
+    const scaleController = gui
       .add(params, "cellSizeScale", 0.5, 1.5, 0.05)
       .name("Square size")
       .onChange((value: number) => {
         this.cellSizeScale = value;
         this.layout();
       });
-    gui
+    const sizeController = gui
       .add(params, "buttonSize", 12, 48, 1)
       .name("Arrow control size")
       .onChange((value: number) => {
         this.buttonFontSize = value;
         this.layout();
       });
-    gui
+    const spacingController = gui
       .add(params, "buttonSpacing", 20, 100, 1)
       .name("Arrow control spacing")
       .onChange((value: number) => {
         this.buttonSpacing = value;
         this.layout();
       });
+
+    const presets = loadPresets();
+    const presetState = { preset: "", presetName: "" };
+
+    const applyPreset = (name: string): void => {
+      const preset = presets[name];
+      if (!preset) return;
+
+      params.gridSize = preset.gridSize;
+      params.cellSizeScale = preset.cellSizeScale;
+      params.buttonSize = preset.buttonSize;
+      params.buttonSpacing = preset.buttonSpacing;
+      gridController.updateDisplay();
+      scaleController.updateDisplay();
+      sizeController.updateDisplay();
+      spacingController.updateDisplay();
+
+      this.gridSize = preset.gridSize;
+      this.cellSizeScale = preset.cellSizeScale;
+      this.buttonFontSize = preset.buttonSize;
+      this.buttonSpacing = preset.buttonSpacing;
+      this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
+      this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
+      this.layout();
+    };
+
+    const presetController = gui
+      .add(presetState, "preset", ["", ...Object.keys(presets)])
+      .name("Load preset")
+      .onChange(applyPreset);
+
+    const presetNameController = gui
+      .add(presetState, "presetName")
+      .name("Preset name");
+
+    gui
+      .add(
+        {
+          save: () => {
+            const name = presetState.presetName.trim();
+            if (!name) return;
+
+            presets[name] = {
+              gridSize: params.gridSize,
+              cellSizeScale: params.cellSizeScale,
+              buttonSize: params.buttonSize,
+              buttonSpacing: params.buttonSpacing,
+            };
+            savePresets(presets);
+
+            presetController.options(["", ...Object.keys(presets)]);
+            presetState.preset = name;
+            presetController.setValue(name);
+            presetState.presetName = "";
+            presetNameController.updateDisplay();
+          },
+        },
+        "save"
+      )
+      .name("Save preset");
 
     gui.hide();
     this.guiVisible = false;
