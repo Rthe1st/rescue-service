@@ -58,6 +58,26 @@ export class GameScene extends Phaser.Scene {
     );
     endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
 
+    const settingsButton = this.add
+      .text(30, 30, "⚙", {
+        fontSize: "20px",
+        color: "#ffffff",
+        backgroundColor: "#424242",
+        padding: { x: 10, y: 6 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    settingsButton.on("pointerover", () =>
+      settingsButton.setStyle({ backgroundColor: "#616161" })
+    );
+    settingsButton.on("pointerout", () =>
+      settingsButton.setStyle({ backgroundColor: "#424242" })
+    );
+    settingsButton.on("pointerdown", () => {
+      this.toggleDebugGui();
+    });
+
     this.gridSize = DEFAULT_GRID_SIZE;
     this.cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
     this.buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
@@ -122,18 +142,19 @@ export class GameScene extends Phaser.Scene {
     this.guiVisible = false;
     this.gui = gui;
 
-    const toggleGui = (): void => {
-      this.guiVisible = !this.guiVisible;
-      gui.show(this.guiVisible);
-    };
-    this.input.keyboard?.on("keydown-BACKTICK", toggleGui);
+    this.input.keyboard?.on("keydown-BACKTICK", this.toggleDebugGui);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.input.keyboard?.off("keydown-BACKTICK", toggleGui);
+      this.input.keyboard?.off("keydown-BACKTICK", this.toggleDebugGui);
       gui.destroy();
       this.gui = undefined;
     });
   }
+
+  private toggleDebugGui = (): void => {
+    this.guiVisible = !this.guiVisible;
+    this.gui?.show(this.guiVisible);
+  };
 
   private isPortrait(): boolean {
     const { width, height } = this.scale.parentSize;
