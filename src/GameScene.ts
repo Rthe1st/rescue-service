@@ -1,6 +1,10 @@
 import Phaser from "phaser";
+import GUI from "lil-gui";
 
-const GRID_SIZE = 16;
+const DEFAULT_GRID_SIZE = 16;
+const DEFAULT_CELL_SIZE_SCALE = 1;
+const DEFAULT_BUTTON_FONT_SIZE = 24;
+const DEFAULT_BUTTON_SPACING = 50;
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 80;
 const MARGIN = 20;
@@ -20,8 +24,14 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
   private controlButtons: Phaser.GameObjects.Text[] = [];
-  private playerRow = GRID_SIZE - 1;
+  private playerRow = DEFAULT_GRID_SIZE - 1;
   private playerCol = 0;
+  private gridSize = DEFAULT_GRID_SIZE;
+  private cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
+  private buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
+  private buttonSpacing = DEFAULT_BUTTON_SPACING;
+  private gui: GUI | undefined;
+  private guiVisible = false;
 
   constructor() {
     super({ key: "GameScene" });
@@ -48,10 +58,15 @@ export class GameScene extends Phaser.Scene {
     );
     endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
 
-    this.playerRow = GRID_SIZE - 1;
+    this.gridSize = DEFAULT_GRID_SIZE;
+    this.cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
+    this.buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
+    this.buttonSpacing = DEFAULT_BUTTON_SPACING;
+    this.playerRow = this.gridSize - 1;
     this.playerCol = 0;
 
     this.layout();
+    this.setupDebugGui();
 
     const handleResize = (): void => {
       this.layout();
@@ -59,6 +74,64 @@ export class GameScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, handleResize);
+    });
+  }
+
+  private setupDebugGui(): void {
+    const params = {
+      gridSize: this.gridSize,
+      cellSizeScale: this.cellSizeScale,
+      buttonSize: this.buttonFontSize,
+      buttonSpacing: this.buttonSpacing,
+    };
+
+    const gui = new GUI({ title: "Game parameters" });
+
+    gui
+      .add(params, "gridSize", 4, 32, 1)
+      .name("Number of squares")
+      .onChange((value: number) => {
+        this.gridSize = value;
+        this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
+        this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
+        this.layout();
+      });
+    gui
+      .add(params, "cellSizeScale", 0.5, 1.5, 0.05)
+      .name("Square size")
+      .onChange((value: number) => {
+        this.cellSizeScale = value;
+        this.layout();
+      });
+    gui
+      .add(params, "buttonSize", 12, 48, 1)
+      .name("Arrow control size")
+      .onChange((value: number) => {
+        this.buttonFontSize = value;
+        this.layout();
+      });
+    gui
+      .add(params, "buttonSpacing", 20, 100, 1)
+      .name("Arrow control spacing")
+      .onChange((value: number) => {
+        this.buttonSpacing = value;
+        this.layout();
+      });
+
+    gui.hide();
+    this.guiVisible = false;
+    this.gui = gui;
+
+    const toggleGui = (): void => {
+      this.guiVisible = !this.guiVisible;
+      gui.show(this.guiVisible);
+    };
+    this.input.keyboard?.on("keydown-BACKTICK", toggleGui);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard?.off("keydown-BACKTICK", toggleGui);
+      gui.destroy();
+      this.gui = undefined;
     });
   }
 
@@ -85,10 +158,14 @@ export class GameScene extends Phaser.Scene {
       availableWidth = width - MARGIN * 2;
       availableHeight =
         height - TOP_MARGIN - CONTROLS_GAP - CONTROLS_AREA_SIZE - MARGIN;
-      this.cellSize = Math.floor(
-        Math.min(availableWidth, availableHeight) / GRID_SIZE
+      this.cellSize = Math.max(
+        1,
+        Math.floor(
+          (Math.min(availableWidth, availableHeight) / this.gridSize) *
+            this.cellSizeScale
+        )
       );
-      const boardSize = this.cellSize * GRID_SIZE;
+      const boardSize = this.cellSize * this.gridSize;
       this.boardOffsetX = (width - boardSize) / 2;
       this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
 
@@ -99,10 +176,14 @@ export class GameScene extends Phaser.Scene {
       // Controls to the left of the board.
       availableWidth = width - CONTROLS_AREA_SIZE - CONTROLS_GAP - MARGIN;
       availableHeight = height - TOP_MARGIN - MARGIN;
-      this.cellSize = Math.floor(
-        Math.min(availableWidth, availableHeight) / GRID_SIZE
+      this.cellSize = Math.max(
+        1,
+        Math.floor(
+          (Math.min(availableWidth, availableHeight) / this.gridSize) *
+            this.cellSizeScale
+        )
       );
-      const boardSize = this.cellSize * GRID_SIZE;
+      const boardSize = this.cellSize * this.gridSize;
       this.boardOffsetX =
         CONTROLS_AREA_SIZE + CONTROLS_GAP + (availableWidth - boardSize) / 2;
       this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
@@ -116,8 +197,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createBoard(): void {
-    for (let row = 0; row < GRID_SIZE; row++) {
-      for (let col = 0; col < GRID_SIZE; col++) {
+    for (let row = 0; row < this.gridSize; row++) {
+      for (let col = 0; col < this.gridSize; col++) {
         const isPlayer = row === this.playerRow && col === this.playerCol;
         const square = this.add
           .rectangle(
@@ -136,7 +217,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createControls(centerX: number, centerY: number): void {
-    const spacing = 50;
+    const spacing = this.buttonSpacing;
+    const padding = {
+      x: Math.round(this.buttonFontSize * (14 / 24)),
+      y: Math.round(this.buttonFontSize * (10 / 24)),
+    };
 
     const directions: Direction[] = [
       { label: "▲", dRow: -1, dCol: 0, x: centerX, y: centerY - spacing },
@@ -148,10 +233,10 @@ export class GameScene extends Phaser.Scene {
     for (const direction of directions) {
       const button = this.add
         .text(direction.x, direction.y, direction.label, {
-          fontSize: "24px",
+          fontSize: `${String(this.buttonFontSize)}px`,
           color: "#ffffff",
           backgroundColor: "#1565c0",
-          padding: { x: 14, y: 10 },
+          padding,
         })
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true });
@@ -174,7 +259,7 @@ export class GameScene extends Phaser.Scene {
     const row = this.playerRow + dRow;
     const col = this.playerCol + dCol;
     const inBounds =
-      row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE;
+      row >= 0 && row < this.gridSize && col >= 0 && col < this.gridSize;
     if (!inBounds) return;
 
     this.getSquare(this.playerRow, this.playerCol).setFillStyle(0xffffff);
