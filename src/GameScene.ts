@@ -1,7 +1,10 @@
 import Phaser from "phaser";
 
 const GRID_SIZE = 16;
-const CONTROLS_AREA_HEIGHT = 140;
+const CONTROLS_AREA_SIZE = 140;
+const TOP_MARGIN = 80;
+const MARGIN = 20;
+const CONTROLS_GAP = 20;
 
 interface Direction {
   label: string;
@@ -16,6 +19,7 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetX = 0;
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
+  private controlButtons: Phaser.GameObjects.Text[] = [];
   private playerRow = GRID_SIZE - 1;
   private playerCol = 0;
 
@@ -24,7 +28,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    const { width, height } = this.scale;
+    const { width } = this.scale;
 
     const endGameButton = this.add
       .text(width / 2, 30, "End Game", {
@@ -44,21 +48,74 @@ export class GameScene extends Phaser.Scene {
     );
     endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
 
-    this.createBoard(width, height);
-    this.createControls(width);
-  }
-
-  private createBoard(width: number, height: number): void {
-    const availableSize = Math.min(width, height - 80 - CONTROLS_AREA_HEIGHT);
-    this.cellSize = Math.floor(availableSize / GRID_SIZE);
-    const boardSize = this.cellSize * GRID_SIZE;
-    this.boardOffsetX = (width - boardSize) / 2;
-    this.boardOffsetY = height - boardSize - 20;
-
     this.playerRow = GRID_SIZE - 1;
     this.playerCol = 0;
 
+    this.layout();
+
+    const handleResize = (): void => {
+      this.layout();
+    };
+    this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, handleResize);
+    });
+  }
+
+  private isPortrait(): boolean {
+    const { width, height } = this.scale.parentSize;
+    if (width === 0 || height === 0) return false;
+    return height > width;
+  }
+
+  private layout(): void {
+    for (const square of this.squares.values()) square.destroy();
     this.squares.clear();
+    for (const button of this.controlButtons) button.destroy();
+    this.controlButtons = [];
+
+    const { width, height } = this.scale;
+    let availableWidth: number;
+    let availableHeight: number;
+    let controlsCenterX: number;
+    let controlsCenterY: number;
+
+    if (this.isPortrait()) {
+      // Controls below the board.
+      availableWidth = width - MARGIN * 2;
+      availableHeight =
+        height - TOP_MARGIN - CONTROLS_GAP - CONTROLS_AREA_SIZE - MARGIN;
+      this.cellSize = Math.floor(
+        Math.min(availableWidth, availableHeight) / GRID_SIZE
+      );
+      const boardSize = this.cellSize * GRID_SIZE;
+      this.boardOffsetX = (width - boardSize) / 2;
+      this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
+
+      controlsCenterX = width / 2;
+      controlsCenterY =
+        this.boardOffsetY + boardSize + CONTROLS_GAP + CONTROLS_AREA_SIZE / 2;
+    } else {
+      // Controls to the left of the board.
+      availableWidth = width - CONTROLS_AREA_SIZE - CONTROLS_GAP - MARGIN;
+      availableHeight = height - TOP_MARGIN - MARGIN;
+      this.cellSize = Math.floor(
+        Math.min(availableWidth, availableHeight) / GRID_SIZE
+      );
+      const boardSize = this.cellSize * GRID_SIZE;
+      this.boardOffsetX =
+        CONTROLS_AREA_SIZE + CONTROLS_GAP + (availableWidth - boardSize) / 2;
+      this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
+
+      controlsCenterX = CONTROLS_AREA_SIZE / 2;
+      controlsCenterY = TOP_MARGIN + availableHeight / 2;
+    }
+
+    this.createBoard();
+    this.createControls(controlsCenterX, controlsCenterY);
+  }
+
+  private createBoard(): void {
     for (let row = 0; row < GRID_SIZE; row++) {
       for (let col = 0; col < GRID_SIZE; col++) {
         const isPlayer = row === this.playerRow && col === this.playerCol;
@@ -78,9 +135,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createControls(width: number): void {
-    const centerX = width / 2;
-    const centerY = 90 + CONTROLS_AREA_HEIGHT / 2;
+  private createControls(centerX: number, centerY: number): void {
     const spacing = 50;
 
     const directions: Direction[] = [
@@ -110,6 +165,8 @@ export class GameScene extends Phaser.Scene {
       button.on("pointerdown", () => {
         this.movePlayer(direction.dRow, direction.dCol);
       });
+
+      this.controlButtons.push(button);
     }
   }
 
