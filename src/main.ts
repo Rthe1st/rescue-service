@@ -10,8 +10,7 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [MainMenuScene, GameScene],
   parent: "game",
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.RESIZE,
   },
 };
 
