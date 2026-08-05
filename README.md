@@ -5,17 +5,6 @@ play it here: https://rescue-service.pages.dev
 
 ## Development
 
-### Local setup
-
-```
-npm install
-npm run dev        # start the dev server
-npm run build       # production build
-npm run typecheck   # tsc --noEmit
-npm run lint         # eslint
-npm run deploy       # build and deploy to Cloudflare Pages
-```
-
 ### Mobile-first dev cycle
 
 Most work on this repo is driven from GitHub issues on mobile, rather than
