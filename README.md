@@ -22,7 +22,10 @@ by editing code directly:
 
 Every PR must fill in `.github/PULL_REQUEST_TEMPLATE.md`, which is checked
 by the "PR Template Check" CI workflow, and should link to the Cloudflare
-Pages preview deployment for that branch.
+Pages preview deployment for that branch. Testing a change is done by opening
+that preview link rather than running the game locally — every push triggers
+the "Cloudflare Pages Deployment Check" workflow, which builds and deploys the
+branch and gives you a `*.pages.dev` URL to try it on.
 
 Note: the routine currently reacts to any issue assignee. A planned
 improvement is to use a dedicated bot account for it and only action issues
