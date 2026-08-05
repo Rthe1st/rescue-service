@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import GUI from "lil-gui";
 import { DEFAULT_GRID_SIZE, createSettingsGui, gameSettings } from "./gameSettings";
+import { generateMap, getTile, type GameMap } from "./mapGeneration";
 
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 80;
@@ -10,6 +11,7 @@ const CONTROLS_GAP = 20;
 const BURN_PHASE_DURATION_MS = 1_000;
 
 const EMPTY_COLOR = 0xffffff;
+const WALL_COLOR = 0x455a64;
 const PLAYER_COLOR = 0x000000;
 const FLAME_COLOR = 0xe53935;
 
@@ -82,9 +84,15 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  private map!: GameMap;
+  private providedMap: GameMap | undefined;
 
   constructor() {
     super({ key: "GameScene" });
+  }
+
+  init(data?: { map?: GameMap }): void {
+    this.providedMap = data?.map;
   }
 
   create(): void {
@@ -132,14 +140,9 @@ export class GameScene extends Phaser.Scene {
     this.settingsButton = settingsButton;
 
     this.applySettings();
-    this.playerRow = this.gridSize - 1;
-    this.playerCol = 0;
-
-    this.phase = "firefighting";
-    this.phaseTimerMs = this.firefightingDurationMs;
-    this.gameOver = false;
-    this.flames = new Set();
-    this.igniteRandomFlame();
+    this.map = this.providedMap ?? generateMap(this.gridSize, this.gridSize);
+    this.providedMap = undefined;
+    this.startRound();
 
     this.timerText = this.add
       .text(width / 2, 58, "", { fontSize: "16px", color: "#ffffff" })
@@ -175,11 +178,31 @@ export class GameScene extends Phaser.Scene {
     this.spreadDirections = gameSettings.spreadDirections;
   }
 
+  private startRound(): void {
+    this.placePlayerAtStart();
+    this.phase = "firefighting";
+    this.phaseTimerMs = this.firefightingDurationMs;
+    this.gameOver = false;
+    this.flames = new Set();
+    this.igniteRandomFlame();
+  }
+
+  private placePlayerAtStart(): void {
+    const start = findNearestFloorTile(this.map, this.gridSize - 1, 0);
+    this.playerRow = start.row;
+    this.playerCol = start.col;
+  }
+
   private setupDebugGui(): void {
     const gui = createSettingsGui(() => {
       this.applySettings();
-      this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
-      this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
+      if (this.map.width !== this.gridSize || this.map.height !== this.gridSize) {
+        this.map = generateMap(this.gridSize, this.gridSize);
+        this.startRound();
+      } else {
+        this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
+        this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
+      }
       this.layout();
     });
 
@@ -297,6 +320,7 @@ export class GameScene extends Phaser.Scene {
   private squareFill(row: number, col: number): number {
     if (row === this.playerRow && col === this.playerCol) return PLAYER_COLOR;
     if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
+    if (getTile(this.map, col, row) === "wall") return WALL_COLOR;
     return EMPTY_COLOR;
   }
 
@@ -406,6 +430,7 @@ export class GameScene extends Phaser.Scene {
     const inBounds =
       row >= 0 && row < this.gridSize && col >= 0 && col < this.gridSize;
     if (!inBounds) return;
+    if (getTile(this.map, col, row) === "wall") return;
 
     const previousRow = this.playerRow;
     const previousCol = this.playerCol;
@@ -484,7 +509,13 @@ export class GameScene extends Phaser.Scene {
       for (const [dRow, dCol] of directions) {
         const r = row + dRow;
         const c = col + dCol;
-        if (r >= 0 && r < this.gridSize && c >= 0 && c < this.gridSize) {
+        if (
+          r >= 0 &&
+          r < this.gridSize &&
+          c >= 0 &&
+          c < this.gridSize &&
+          getTile(this.map, c, r) === "floor"
+        ) {
           next.add(squareKey(r, c));
         }
       }
@@ -497,6 +528,7 @@ export class GameScene extends Phaser.Scene {
     for (let row = 0; row < this.gridSize; row++) {
       for (let col = 0; col < this.gridSize; col++) {
         if (row === this.playerRow && col === this.playerCol) continue;
+        if (getTile(this.map, col, row) !== "floor") continue;
         candidates.push(squareKey(row, col));
       }
     }
@@ -541,6 +573,29 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
+}
+
+function findNearestFloorTile(
+  map: GameMap,
+  preferredRow: number,
+  preferredCol: number
+): { row: number; col: number } {
+  let best: { row: number; col: number } | undefined;
+  let bestDistance = Infinity;
+
+  for (let row = 0; row < map.height; row++) {
+    for (let col = 0; col < map.width; col++) {
+      if (getTile(map, col, row) !== "floor") continue;
+      const distance = Math.abs(row - preferredRow) + Math.abs(col - preferredCol);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { row, col };
+      }
+    }
+  }
+
+  if (!best) throw new Error("Generated map has no floor tiles");
+  return best;
 }
 
 function rectFromBounds(

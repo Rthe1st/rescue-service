@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { MainMenuScene } from "./MainMenuScene";
+import { MapPreviewScene } from "./MapPreviewScene";
 import { GameScene } from "./GameScene";
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -7,7 +8,7 @@ const config: Phaser.Types.Core.GameConfig = {
   width: 800,
   height: 600,
   backgroundColor: "#1a1a2e",
-  scene: [MainMenuScene, GameScene],
+  scene: [MainMenuScene, MapPreviewScene, GameScene],
   parent: "game",
   scale: {
     mode: Phaser.Scale.RESIZE,
