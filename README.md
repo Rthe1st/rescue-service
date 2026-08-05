@@ -27,6 +27,11 @@ that preview link rather than running the game locally — every push triggers
 the "Cloudflare Pages Deployment Check" workflow, which builds and deploys the
 branch and gives you a `*.pages.dev` URL to try it on.
 
+PR branches must stay rebased onto the latest `main` — rebase, don't merge
+`main` back into your branch. The "Require Rebase" CI workflow fails a PR if
+its branch hasn't incorporated the current tip of `main`, or if it contains
+any merge commits, so history stays linear.
+
 Note: the routine currently reacts to any issue assignee. A planned
 improvement is to use a dedicated bot account for it and only action issues
 assigned to that account, rather than anyone.

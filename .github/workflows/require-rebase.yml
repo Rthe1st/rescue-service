@@ -1,0 +1,43 @@
+name: Require Rebase
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: require-rebase-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  require-rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify branch is rebased onto latest base with no merge commits
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -e
+          git fetch origin "$BASE_REF"
+
+          if ! git merge-base --is-ancestor "origin/$BASE_REF" HEAD; then
+            echo "::error::This branch is not rebased onto the latest $BASE_REF. Rebase onto origin/$BASE_REF (not merge it in) and force-push before this can merge."
+            exit 1
+          fi
+
+          merge_commits=$(git log --merges "origin/$BASE_REF..HEAD" --oneline)
+          if [ -n "$merge_commits" ]; then
+            echo "::error::This branch contains merge commits from $BASE_REF. Rebase onto origin/$BASE_REF instead of merging it in:"
+            echo "$merge_commits"
+            exit 1
+          fi
+
+          echo "Branch is rebased onto the latest $BASE_REF with a linear history."
