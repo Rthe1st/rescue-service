@@ -7,7 +7,7 @@ const TOP_MARGIN = 80;
 const MARGIN = 20;
 const CONTROLS_GAP = 20;
 
-const FIREFIGHTING_DURATION_MS = 30_000;
+const BURN_PHASE_DURATION_MS = 1_000;
 
 const EMPTY_COLOR = 0xffffff;
 const PLAYER_COLOR = 0x000000;
@@ -76,8 +76,8 @@ export class GameScene extends Phaser.Scene {
   private guiVisible = false;
   private flames = new Set<string>();
   private phase: GamePhase = "firefighting";
-  private phaseTimerMs = FIREFIGHTING_DURATION_MS;
-  private burnPhaseDurationMs = gameSettings.burnDurationSeconds * 1000;
+  private firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
+  private phaseTimerMs = this.firefightingDurationMs;
   private spreadDirections = gameSettings.spreadDirections;
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
@@ -136,7 +136,7 @@ export class GameScene extends Phaser.Scene {
     this.playerCol = 0;
 
     this.phase = "firefighting";
-    this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
+    this.phaseTimerMs = this.firefightingDurationMs;
     this.gameOver = false;
     this.flames = new Set();
     this.igniteRandomFlame();
@@ -171,7 +171,7 @@ export class GameScene extends Phaser.Scene {
     this.cellSizeScale = gameSettings.cellSizeScale;
     this.buttonFontSize = gameSettings.buttonSize;
     this.buttonSpacing = gameSettings.buttonSpacing;
-    this.burnPhaseDurationMs = gameSettings.burnDurationSeconds * 1000;
+    this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
   }
 
@@ -448,7 +448,7 @@ export class GameScene extends Phaser.Scene {
 
   private startBurnPhase(): void {
     this.phase = "burn";
-    this.phaseTimerMs = this.burnPhaseDurationMs;
+    this.phaseTimerMs = BURN_PHASE_DURATION_MS;
     this.spreadFlames();
     this.layout();
 
@@ -462,7 +462,7 @@ export class GameScene extends Phaser.Scene {
 
   private startFirefightingPhase(): void {
     this.phase = "firefighting";
-    this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
+    this.phaseTimerMs = this.firefightingDurationMs;
     this.layout();
     this.updatePhaseText();
   }
