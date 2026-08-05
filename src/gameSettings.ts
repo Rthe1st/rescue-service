@@ -4,7 +4,7 @@ export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
 export const DEFAULT_BUTTON_FONT_SIZE = 24;
 export const DEFAULT_BUTTON_SPACING = 50;
-export const DEFAULT_BURN_DURATION_S = 1;
+export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
@@ -14,7 +14,7 @@ export interface GameParams {
   cellSizeScale: number;
   buttonSize: number;
   buttonSpacing: number;
-  burnDurationSeconds: number;
+  firefightingDurationSeconds: number;
   spreadDirections: number;
 }
 
@@ -23,7 +23,7 @@ export const gameSettings: GameParams = {
   cellSizeScale: DEFAULT_CELL_SIZE_SCALE,
   buttonSize: DEFAULT_BUTTON_FONT_SIZE,
   buttonSpacing: DEFAULT_BUTTON_SPACING,
-  burnDurationSeconds: DEFAULT_BURN_DURATION_S,
+  firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
 };
 
@@ -35,7 +35,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["cellSizeScale"] === "number" &&
     typeof candidate["buttonSize"] === "number" &&
     typeof candidate["buttonSpacing"] === "number" &&
-    typeof candidate["burnDurationSeconds"] === "number" &&
+    typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number"
   );
 }
@@ -82,9 +82,9 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "buttonSpacing", 20, 100, 1)
     .name("Arrow control spacing")
     .onChange(() => onChange?.());
-  const burnDurationController = gui
-    .add(gameSettings, "burnDurationSeconds", 1, 100, 1)
-    .name("Burn duration (s)")
+  const firefightingDurationController = gui
+    .add(gameSettings, "firefightingDurationSeconds", 1, 100, 1)
+    .name("Firefighting duration (s)")
     .onChange(() => onChange?.());
   const spreadDirectionsController = gui
     .add(gameSettings, "spreadDirections", 1, 4, 1)
@@ -102,13 +102,13 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.cellSizeScale = preset.cellSizeScale;
     gameSettings.buttonSize = preset.buttonSize;
     gameSettings.buttonSpacing = preset.buttonSpacing;
-    gameSettings.burnDurationSeconds = preset.burnDurationSeconds;
+    gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
     spacingController.updateDisplay();
-    burnDurationController.updateDisplay();
+    firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
 
     onChange?.();
