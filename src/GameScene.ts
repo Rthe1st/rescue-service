@@ -1,18 +1,13 @@
 import Phaser from "phaser";
 import GUI from "lil-gui";
+import { DEFAULT_GRID_SIZE, createSettingsGui, gameSettings } from "./gameSettings";
 
-const DEFAULT_GRID_SIZE = 16;
-const DEFAULT_CELL_SIZE_SCALE = 1;
-const DEFAULT_BUTTON_FONT_SIZE = 24;
-const DEFAULT_BUTTON_SPACING = 50;
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 80;
 const MARGIN = 20;
 const CONTROLS_GAP = 20;
-const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
 const FIREFIGHTING_DURATION_MS = 30_000;
-const DEFAULT_BURN_DURATION_S = 1;
 
 const EMPTY_COLOR = 0xffffff;
 const PLAYER_COLOR = 0x000000;
@@ -25,31 +20,7 @@ const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [0, 1],
 ];
 
-const DEFAULT_SPREAD_DIRECTIONS = ADJACENT_OFFSETS.length;
-
 type GamePhase = "firefighting" | "burn";
-
-interface GameParams {
-  gridSize: number;
-  cellSizeScale: number;
-  buttonSize: number;
-  buttonSpacing: number;
-  burnDurationSeconds: number;
-  spreadDirections: number;
-}
-
-function isGameParams(value: unknown): value is GameParams {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate["gridSize"] === "number" &&
-    typeof candidate["cellSizeScale"] === "number" &&
-    typeof candidate["buttonSize"] === "number" &&
-    typeof candidate["buttonSpacing"] === "number" &&
-    typeof candidate["burnDurationSeconds"] === "number" &&
-    typeof candidate["spreadDirections"] === "number"
-  );
-}
 
 function pickRandomDirections(count: number): Array<[number, number]> {
   const indices = [0, 1, 2, 3];
@@ -68,28 +39,6 @@ function pickRandomDirections(count: number): Array<[number, number]> {
     if (offset) result.push(offset);
   }
   return result;
-}
-
-function loadPresets(): Record<string, GameParams> {
-  try {
-    const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return {};
-    const presets: Record<string, GameParams> = {};
-    for (const [name, value] of Object.entries(
-      parsed as Record<string, unknown>
-    )) {
-      if (isGameParams(value)) presets[name] = value;
-    }
-    return presets;
-  } catch {
-    return {};
-  }
-}
-
-function savePresets(presets: Record<string, GameParams>): void {
-  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
 }
 
 interface Direction {
@@ -120,16 +69,16 @@ export class GameScene extends Phaser.Scene {
   private playerRow = DEFAULT_GRID_SIZE - 1;
   private playerCol = 0;
   private gridSize = DEFAULT_GRID_SIZE;
-  private cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
-  private buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
-  private buttonSpacing = DEFAULT_BUTTON_SPACING;
+  private cellSizeScale = gameSettings.cellSizeScale;
+  private buttonFontSize = gameSettings.buttonSize;
+  private buttonSpacing = gameSettings.buttonSpacing;
   private gui: GUI | undefined;
   private guiVisible = false;
   private flames = new Set<string>();
   private phase: GamePhase = "firefighting";
   private phaseTimerMs = FIREFIGHTING_DURATION_MS;
-  private burnPhaseDurationMs = DEFAULT_BURN_DURATION_S * 1000;
-  private spreadDirections = DEFAULT_SPREAD_DIRECTIONS;
+  private burnPhaseDurationMs = gameSettings.burnDurationSeconds * 1000;
+  private spreadDirections = gameSettings.spreadDirections;
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
@@ -182,17 +131,12 @@ export class GameScene extends Phaser.Scene {
     this.endGameButton = endGameButton;
     this.settingsButton = settingsButton;
 
-    this.gridSize = DEFAULT_GRID_SIZE;
-    this.cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
-    this.buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
-    this.buttonSpacing = DEFAULT_BUTTON_SPACING;
+    this.applySettings();
     this.playerRow = this.gridSize - 1;
     this.playerCol = 0;
 
     this.phase = "firefighting";
     this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
-    this.burnPhaseDurationMs = DEFAULT_BURN_DURATION_S * 1000;
-    this.spreadDirections = DEFAULT_SPREAD_DIRECTIONS;
     this.gameOver = false;
     this.flames = new Set();
     this.igniteRandomFlame();
@@ -222,128 +166,22 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private applySettings(): void {
+    this.gridSize = gameSettings.gridSize;
+    this.cellSizeScale = gameSettings.cellSizeScale;
+    this.buttonFontSize = gameSettings.buttonSize;
+    this.buttonSpacing = gameSettings.buttonSpacing;
+    this.burnPhaseDurationMs = gameSettings.burnDurationSeconds * 1000;
+    this.spreadDirections = gameSettings.spreadDirections;
+  }
+
   private setupDebugGui(): void {
-    const params: GameParams = {
-      gridSize: this.gridSize,
-      cellSizeScale: this.cellSizeScale,
-      buttonSize: this.buttonFontSize,
-      buttonSpacing: this.buttonSpacing,
-      burnDurationSeconds: this.burnPhaseDurationMs / 1000,
-      spreadDirections: this.spreadDirections,
-    };
-
-    const gui = new GUI({ title: "Game parameters" });
-
-    const gridController = gui
-      .add(params, "gridSize", 4, 32, 1)
-      .name("Number of squares")
-      .onChange((value: number) => {
-        this.gridSize = value;
-        this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
-        this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
-        this.layout();
-      });
-    const scaleController = gui
-      .add(params, "cellSizeScale", 0.5, 1.5, 0.05)
-      .name("Square size")
-      .onChange((value: number) => {
-        this.cellSizeScale = value;
-        this.layout();
-      });
-    const sizeController = gui
-      .add(params, "buttonSize", 12, 48, 1)
-      .name("Arrow control size")
-      .onChange((value: number) => {
-        this.buttonFontSize = value;
-        this.layout();
-      });
-    const spacingController = gui
-      .add(params, "buttonSpacing", 20, 100, 1)
-      .name("Arrow control spacing")
-      .onChange((value: number) => {
-        this.buttonSpacing = value;
-        this.layout();
-      });
-    const burnDurationController = gui
-      .add(params, "burnDurationSeconds", 1, 100, 1)
-      .name("Burn duration (s)")
-      .onChange((value: number) => {
-        this.burnPhaseDurationMs = value * 1000;
-      });
-    const spreadDirectionsController = gui
-      .add(params, "spreadDirections", 1, 4, 1)
-      .name("Flame spread directions")
-      .onChange((value: number) => {
-        this.spreadDirections = value;
-      });
-
-    const presets = loadPresets();
-    const presetState = { preset: "", presetName: "" };
-
-    const applyPreset = (name: string): void => {
-      const preset = presets[name];
-      if (!preset) return;
-
-      params.gridSize = preset.gridSize;
-      params.cellSizeScale = preset.cellSizeScale;
-      params.buttonSize = preset.buttonSize;
-      params.buttonSpacing = preset.buttonSpacing;
-      params.burnDurationSeconds = preset.burnDurationSeconds;
-      params.spreadDirections = preset.spreadDirections;
-      gridController.updateDisplay();
-      scaleController.updateDisplay();
-      sizeController.updateDisplay();
-      spacingController.updateDisplay();
-      burnDurationController.updateDisplay();
-      spreadDirectionsController.updateDisplay();
-
-      this.gridSize = preset.gridSize;
-      this.cellSizeScale = preset.cellSizeScale;
-      this.buttonFontSize = preset.buttonSize;
-      this.buttonSpacing = preset.buttonSpacing;
-      this.burnPhaseDurationMs = preset.burnDurationSeconds * 1000;
-      this.spreadDirections = preset.spreadDirections;
+    const gui = createSettingsGui(() => {
+      this.applySettings();
       this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
       this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
       this.layout();
-    };
-
-    const presetController = gui
-      .add(presetState, "preset", ["", ...Object.keys(presets)])
-      .name("Load preset")
-      .onChange(applyPreset);
-
-    const presetNameController = gui
-      .add(presetState, "presetName")
-      .name("Preset name");
-
-    gui
-      .add(
-        {
-          save: () => {
-            const name = presetState.presetName.trim();
-            if (!name) return;
-
-            presets[name] = {
-              gridSize: params.gridSize,
-              cellSizeScale: params.cellSizeScale,
-              buttonSize: params.buttonSize,
-              buttonSpacing: params.buttonSpacing,
-              burnDurationSeconds: params.burnDurationSeconds,
-              spreadDirections: params.spreadDirections,
-            };
-            savePresets(presets);
-
-            presetController.options(["", ...Object.keys(presets)]);
-            presetState.preset = name;
-            presetController.setValue(name);
-            presetState.presetName = "";
-            presetNameController.updateDisplay();
-          },
-        },
-        "save"
-      )
-      .name("Save preset");
+    });
 
     gui.hide();
     this.guiVisible = false;
@@ -597,7 +435,7 @@ export class GameScene extends Phaser.Scene {
 
     this.phaseTimerMs -= delta;
     if (this.phaseTimerMs > 0) {
-      if (this.phase === "firefighting") this.updatePhaseText();
+      this.updatePhaseText();
       return;
     }
 
@@ -686,17 +524,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.phase === "burn") {
-      this.timerText.setVisible(false);
-      this.statusText.setText("🔥 Fire is spreading!").setVisible(true);
-      return;
-    }
-
     this.statusText.setVisible(false);
     const seconds = Math.max(0, Math.ceil(this.phaseTimerMs / 1000));
-    this.timerText
-      .setText(`🧯 Firefighting: ${String(seconds)}s`)
-      .setVisible(true);
+    const label =
+      this.phase === "burn"
+        ? `🔥 Fire spreading: ${String(seconds)}s`
+        : `🧯 Firefighting: ${String(seconds)}s`;
+    this.timerText.setText(label).setVisible(true);
   }
 }
 

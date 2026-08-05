@@ -1,0 +1,148 @@
+import GUI from "lil-gui";
+
+export const DEFAULT_GRID_SIZE = 16;
+export const DEFAULT_CELL_SIZE_SCALE = 1;
+export const DEFAULT_BUTTON_FONT_SIZE = 24;
+export const DEFAULT_BUTTON_SPACING = 50;
+export const DEFAULT_BURN_DURATION_S = 1;
+export const DEFAULT_SPREAD_DIRECTIONS = 4;
+
+const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
+
+export interface GameParams {
+  gridSize: number;
+  cellSizeScale: number;
+  buttonSize: number;
+  buttonSpacing: number;
+  burnDurationSeconds: number;
+  spreadDirections: number;
+}
+
+export const gameSettings: GameParams = {
+  gridSize: DEFAULT_GRID_SIZE,
+  cellSizeScale: DEFAULT_CELL_SIZE_SCALE,
+  buttonSize: DEFAULT_BUTTON_FONT_SIZE,
+  buttonSpacing: DEFAULT_BUTTON_SPACING,
+  burnDurationSeconds: DEFAULT_BURN_DURATION_S,
+  spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
+};
+
+function isGameParams(value: unknown): value is GameParams {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate["gridSize"] === "number" &&
+    typeof candidate["cellSizeScale"] === "number" &&
+    typeof candidate["buttonSize"] === "number" &&
+    typeof candidate["buttonSpacing"] === "number" &&
+    typeof candidate["burnDurationSeconds"] === "number" &&
+    typeof candidate["spreadDirections"] === "number"
+  );
+}
+
+function loadPresets(): Record<string, GameParams> {
+  try {
+    const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const presets: Record<string, GameParams> = {};
+    for (const [name, value] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (isGameParams(value)) presets[name] = value;
+    }
+    return presets;
+  } catch {
+    return {};
+  }
+}
+
+function savePresets(presets: Record<string, GameParams>): void {
+  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+}
+
+// Binds directly to the shared `gameSettings` object so any scene's panel stays in sync.
+export function createSettingsGui(onChange?: () => void): GUI {
+  const gui = new GUI({ title: "Game parameters" });
+
+  const gridController = gui
+    .add(gameSettings, "gridSize", 4, 32, 1)
+    .name("Number of squares")
+    .onChange(() => onChange?.());
+  const scaleController = gui
+    .add(gameSettings, "cellSizeScale", 0.5, 1.5, 0.05)
+    .name("Square size")
+    .onChange(() => onChange?.());
+  const sizeController = gui
+    .add(gameSettings, "buttonSize", 12, 48, 1)
+    .name("Arrow control size")
+    .onChange(() => onChange?.());
+  const spacingController = gui
+    .add(gameSettings, "buttonSpacing", 20, 100, 1)
+    .name("Arrow control spacing")
+    .onChange(() => onChange?.());
+  const burnDurationController = gui
+    .add(gameSettings, "burnDurationSeconds", 1, 100, 1)
+    .name("Burn duration (s)")
+    .onChange(() => onChange?.());
+  const spreadDirectionsController = gui
+    .add(gameSettings, "spreadDirections", 1, 4, 1)
+    .name("Flame spread directions")
+    .onChange(() => onChange?.());
+
+  const presets = loadPresets();
+  const presetState = { preset: "", presetName: "" };
+
+  const applyPreset = (name: string): void => {
+    const preset = presets[name];
+    if (!preset) return;
+
+    gameSettings.gridSize = preset.gridSize;
+    gameSettings.cellSizeScale = preset.cellSizeScale;
+    gameSettings.buttonSize = preset.buttonSize;
+    gameSettings.buttonSpacing = preset.buttonSpacing;
+    gameSettings.burnDurationSeconds = preset.burnDurationSeconds;
+    gameSettings.spreadDirections = preset.spreadDirections;
+    gridController.updateDisplay();
+    scaleController.updateDisplay();
+    sizeController.updateDisplay();
+    spacingController.updateDisplay();
+    burnDurationController.updateDisplay();
+    spreadDirectionsController.updateDisplay();
+
+    onChange?.();
+  };
+
+  const presetController = gui
+    .add(presetState, "preset", ["", ...Object.keys(presets)])
+    .name("Load preset")
+    .onChange(applyPreset);
+
+  const presetNameController = gui
+    .add(presetState, "presetName")
+    .name("Preset name");
+
+  gui
+    .add(
+      {
+        save: () => {
+          const name = presetState.presetName.trim();
+          if (!name) return;
+
+          presets[name] = { ...gameSettings };
+          savePresets(presets);
+
+          presetController.options(["", ...Object.keys(presets)]);
+          presetState.preset = name;
+          presetController.setValue(name);
+          presetState.presetName = "";
+          presetNameController.updateDisplay();
+        },
+      },
+      "save"
+    )
+    .name("Save preset");
+
+  return gui;
+}

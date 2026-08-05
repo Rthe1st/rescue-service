@@ -1,4 +1,6 @@
 import Phaser from "phaser";
+import GUI from "lil-gui";
+import { createSettingsGui } from "./gameSettings";
 
 export interface ElementBounds {
   x: number;
@@ -10,12 +12,43 @@ export interface ElementBounds {
 export class MainMenuScene extends Phaser.Scene {
   private titleText: Phaser.GameObjects.Text | undefined;
   private startButton: Phaser.GameObjects.Text | undefined;
+  private settingsButton: Phaser.GameObjects.Text | undefined;
+  private gui: GUI | undefined;
+  private guiVisible = false;
 
   constructor() {
     super({ key: "MainMenuScene" });
   }
 
   create(): void {
+    const settingsButton = this.add
+      .text(30, 30, "⚙", {
+        fontSize: "20px",
+        color: "#ffffff",
+        backgroundColor: "#424242",
+        padding: { x: 10, y: 6 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    settingsButton.on("pointerover", () =>
+      settingsButton.setStyle({ backgroundColor: "#616161" })
+    );
+    settingsButton.on("pointerout", () =>
+      settingsButton.setStyle({ backgroundColor: "#424242" })
+    );
+    settingsButton.on("pointerdown", () => {
+      this.toggleDebugGui();
+    });
+    this.settingsButton = settingsButton;
+
+    const gui = createSettingsGui();
+    gui.hide();
+    this.guiVisible = false;
+    this.gui = gui;
+
+    this.input.keyboard?.on("keydown-BACKTICK", this.toggleDebugGui);
+
     this.layout();
 
     const handleResize = (): void => {
@@ -24,6 +57,9 @@ export class MainMenuScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, handleResize);
+      this.input.keyboard?.off("keydown-BACKTICK", this.toggleDebugGui);
+      gui.destroy();
+      this.gui = undefined;
     });
   }
 
@@ -68,8 +104,14 @@ export class MainMenuScene extends Phaser.Scene {
     return {
       title: rectFromBounds(this.titleText),
       startButton: rectFromBounds(this.startButton),
+      settingsButton: rectFromBounds(this.settingsButton),
     };
   }
+
+  private toggleDebugGui = (): void => {
+    this.guiVisible = !this.guiVisible;
+    this.gui?.show(this.guiVisible);
+  };
 }
 
 function rectFromBounds(
