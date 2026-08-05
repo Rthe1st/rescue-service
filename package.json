@@ -8,10 +8,12 @@
     "build": "vite build",
     "dev": "vite",
     "deploy": "vite build && wrangler pages deploy",
-    "check-pr-description": "node scripts/check-pr-description.mjs"
+    "check-pr-description": "node scripts/check-pr-description.mjs",
+    "test:layout": "playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.61.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",

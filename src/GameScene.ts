@@ -52,11 +52,19 @@ function savePresets(presets: Record<string, GameParams>): void {
 }
 
 interface Direction {
+  name: string;
   label: string;
   dRow: number;
   dCol: number;
   x: number;
   y: number;
+}
+
+export interface ElementBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -65,6 +73,9 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
   private controlButtons: Phaser.GameObjects.Text[] = [];
+  private controlButtonsByName = new Map<string, Phaser.GameObjects.Text>();
+  private endGameButton: Phaser.GameObjects.Text | undefined;
+  private settingsButton: Phaser.GameObjects.Text | undefined;
   private playerRow = DEFAULT_GRID_SIZE - 1;
   private playerCol = 0;
   private gridSize = DEFAULT_GRID_SIZE;
@@ -119,6 +130,9 @@ export class GameScene extends Phaser.Scene {
       this.toggleDebugGui();
     });
 
+    this.endGameButton = endGameButton;
+    this.settingsButton = settingsButton;
+
     this.gridSize = DEFAULT_GRID_SIZE;
     this.cellSizeScale = DEFAULT_CELL_SIZE_SCALE;
     this.buttonFontSize = DEFAULT_BUTTON_FONT_SIZE;
@@ -130,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     this.setupDebugGui();
 
     const handleResize = (): void => {
+      this.endGameButton?.setX(this.scale.width / 2);
       this.layout();
     };
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
@@ -275,11 +290,20 @@ export class GameScene extends Phaser.Scene {
     let controlsCenterX: number;
     let controlsCenterY: number;
 
+    // The control buttons sit `buttonSpacing` away from the cluster center and
+    // are roughly `buttonFontSize` wide/tall, so the reserved area must grow
+    // with those debug-tunable values or the outer buttons get clipped off
+    // the edge of the screen.
+    const controlsAreaSize = Math.max(
+      CONTROLS_AREA_SIZE,
+      (this.buttonSpacing + this.buttonFontSize) * 2 + MARGIN
+    );
+
     if (this.isPortrait()) {
       // Controls below the board.
       availableWidth = width - MARGIN * 2;
       availableHeight =
-        height - TOP_MARGIN - CONTROLS_GAP - CONTROLS_AREA_SIZE - MARGIN;
+        height - TOP_MARGIN - CONTROLS_GAP - controlsAreaSize - MARGIN;
       this.cellSize = Math.max(
         1,
         Math.floor(
@@ -293,10 +317,10 @@ export class GameScene extends Phaser.Scene {
 
       controlsCenterX = width / 2;
       controlsCenterY =
-        this.boardOffsetY + boardSize + CONTROLS_GAP + CONTROLS_AREA_SIZE / 2;
+        this.boardOffsetY + boardSize + CONTROLS_GAP + controlsAreaSize / 2;
     } else {
       // Controls to the left of the board.
-      availableWidth = width - CONTROLS_AREA_SIZE - CONTROLS_GAP - MARGIN;
+      availableWidth = width - controlsAreaSize - CONTROLS_GAP - MARGIN;
       availableHeight = height - TOP_MARGIN - MARGIN;
       this.cellSize = Math.max(
         1,
@@ -307,10 +331,10 @@ export class GameScene extends Phaser.Scene {
       );
       const boardSize = this.cellSize * this.gridSize;
       this.boardOffsetX =
-        CONTROLS_AREA_SIZE + CONTROLS_GAP + (availableWidth - boardSize) / 2;
+        controlsAreaSize + CONTROLS_GAP + (availableWidth - boardSize) / 2;
       this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
 
-      controlsCenterX = CONTROLS_AREA_SIZE / 2;
+      controlsCenterX = controlsAreaSize / 2;
       controlsCenterY = TOP_MARGIN + availableHeight / 2;
     }
 
@@ -339,6 +363,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createControls(centerX: number, centerY: number): void {
+    this.controlButtonsByName.clear();
+
     const spacing = this.buttonSpacing;
     const padding = {
       x: Math.round(this.buttonFontSize * (14 / 24)),
@@ -346,10 +372,38 @@ export class GameScene extends Phaser.Scene {
     };
 
     const directions: Direction[] = [
-      { label: "▲", dRow: -1, dCol: 0, x: centerX, y: centerY - spacing },
-      { label: "▼", dRow: 1, dCol: 0, x: centerX, y: centerY + spacing },
-      { label: "◀", dRow: 0, dCol: -1, x: centerX - spacing, y: centerY },
-      { label: "▶", dRow: 0, dCol: 1, x: centerX + spacing, y: centerY },
+      {
+        name: "up",
+        label: "▲",
+        dRow: -1,
+        dCol: 0,
+        x: centerX,
+        y: centerY - spacing,
+      },
+      {
+        name: "down",
+        label: "▼",
+        dRow: 1,
+        dCol: 0,
+        x: centerX,
+        y: centerY + spacing,
+      },
+      {
+        name: "left",
+        label: "◀",
+        dRow: 0,
+        dCol: -1,
+        x: centerX - spacing,
+        y: centerY,
+      },
+      {
+        name: "right",
+        label: "▶",
+        dRow: 0,
+        dCol: 1,
+        x: centerX + spacing,
+        y: centerY,
+      },
     ];
 
     for (const direction of directions) {
@@ -374,7 +428,27 @@ export class GameScene extends Phaser.Scene {
       });
 
       this.controlButtons.push(button);
+      this.controlButtonsByName.set(direction.name, button);
     }
+  }
+
+  getTestBounds(): Record<string, ElementBounds> {
+    const bounds: Record<string, ElementBounds> = {
+      endGameButton: rectFromBounds(this.endGameButton),
+      settingsButton: rectFromBounds(this.settingsButton),
+      board: {
+        x: this.boardOffsetX,
+        y: this.boardOffsetY,
+        width: this.cellSize * this.gridSize,
+        height: this.cellSize * this.gridSize,
+      },
+    };
+
+    for (const [name, button] of this.controlButtonsByName) {
+      bounds[`control-${name}`] = rectFromBounds(button);
+    }
+
+    return bounds;
   }
 
   private movePlayer(dRow: number, dCol: number): void {
@@ -401,4 +475,17 @@ export class GameScene extends Phaser.Scene {
 
 function squareKey(row: number, col: number): string {
   return `${String(row)}-${String(col)}`;
+}
+
+function rectFromBounds(
+  obj: Phaser.GameObjects.Text | undefined
+): ElementBounds {
+  if (!obj) return { x: 0, y: 0, width: 0, height: 0 };
+  const bounds = obj.getBounds();
+  return {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
 }

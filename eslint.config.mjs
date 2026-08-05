@@ -13,6 +13,12 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["dist/", "eslint.config.mjs", "vite.config.ts"],
+    ignores: [
+      "dist/",
+      "eslint.config.mjs",
+      "vite.config.ts",
+      "playwright.config.ts",
+      "tests/",
+    ],
   }
 );
