@@ -12,7 +12,7 @@ const CONTROLS_GAP = 20;
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
 const FIREFIGHTING_DURATION_MS = 30_000;
-const BURN_PHASE_DURATION_MS = 1_000;
+const DEFAULT_BURN_DURATION_S = 1;
 
 const EMPTY_COLOR = 0xffffff;
 const PLAYER_COLOR = 0x000000;
@@ -25,6 +25,8 @@ const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [0, 1],
 ];
 
+const DEFAULT_SPREAD_DIRECTIONS = ADJACENT_OFFSETS.length;
+
 type GamePhase = "firefighting" | "burn";
 
 interface GameParams {
@@ -32,6 +34,8 @@ interface GameParams {
   cellSizeScale: number;
   buttonSize: number;
   buttonSpacing: number;
+  burnDurationSeconds: number;
+  spreadDirections: number;
 }
 
 function isGameParams(value: unknown): value is GameParams {
@@ -41,8 +45,29 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["gridSize"] === "number" &&
     typeof candidate["cellSizeScale"] === "number" &&
     typeof candidate["buttonSize"] === "number" &&
-    typeof candidate["buttonSpacing"] === "number"
+    typeof candidate["buttonSpacing"] === "number" &&
+    typeof candidate["burnDurationSeconds"] === "number" &&
+    typeof candidate["spreadDirections"] === "number"
   );
+}
+
+function pickRandomDirections(count: number): Array<[number, number]> {
+  const indices = [0, 1, 2, 3];
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const a = indices[i];
+    const b = indices[j];
+    if (a === undefined || b === undefined) continue;
+    indices[i] = b;
+    indices[j] = a;
+  }
+
+  const result: Array<[number, number]> = [];
+  for (const index of indices.slice(0, count)) {
+    const offset = ADJACENT_OFFSETS[index];
+    if (offset) result.push(offset);
+  }
+  return result;
 }
 
 function loadPresets(): Record<string, GameParams> {
@@ -103,6 +128,8 @@ export class GameScene extends Phaser.Scene {
   private flames = new Set<string>();
   private phase: GamePhase = "firefighting";
   private phaseTimerMs = FIREFIGHTING_DURATION_MS;
+  private burnPhaseDurationMs = DEFAULT_BURN_DURATION_S * 1000;
+  private spreadDirections = DEFAULT_SPREAD_DIRECTIONS;
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
@@ -164,6 +191,8 @@ export class GameScene extends Phaser.Scene {
 
     this.phase = "firefighting";
     this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
+    this.burnPhaseDurationMs = DEFAULT_BURN_DURATION_S * 1000;
+    this.spreadDirections = DEFAULT_SPREAD_DIRECTIONS;
     this.gameOver = false;
     this.flames = new Set();
     this.igniteRandomFlame();
@@ -199,6 +228,8 @@ export class GameScene extends Phaser.Scene {
       cellSizeScale: this.cellSizeScale,
       buttonSize: this.buttonFontSize,
       buttonSpacing: this.buttonSpacing,
+      burnDurationSeconds: this.burnPhaseDurationMs / 1000,
+      spreadDirections: this.spreadDirections,
     };
 
     const gui = new GUI({ title: "Game parameters" });
@@ -233,6 +264,18 @@ export class GameScene extends Phaser.Scene {
         this.buttonSpacing = value;
         this.layout();
       });
+    const burnDurationController = gui
+      .add(params, "burnDurationSeconds", 1, 100, 1)
+      .name("Burn duration (s)")
+      .onChange((value: number) => {
+        this.burnPhaseDurationMs = value * 1000;
+      });
+    const spreadDirectionsController = gui
+      .add(params, "spreadDirections", 1, 4, 1)
+      .name("Flame spread directions")
+      .onChange((value: number) => {
+        this.spreadDirections = value;
+      });
 
     const presets = loadPresets();
     const presetState = { preset: "", presetName: "" };
@@ -245,15 +288,21 @@ export class GameScene extends Phaser.Scene {
       params.cellSizeScale = preset.cellSizeScale;
       params.buttonSize = preset.buttonSize;
       params.buttonSpacing = preset.buttonSpacing;
+      params.burnDurationSeconds = preset.burnDurationSeconds;
+      params.spreadDirections = preset.spreadDirections;
       gridController.updateDisplay();
       scaleController.updateDisplay();
       sizeController.updateDisplay();
       spacingController.updateDisplay();
+      burnDurationController.updateDisplay();
+      spreadDirectionsController.updateDisplay();
 
       this.gridSize = preset.gridSize;
       this.cellSizeScale = preset.cellSizeScale;
       this.buttonFontSize = preset.buttonSize;
       this.buttonSpacing = preset.buttonSpacing;
+      this.burnPhaseDurationMs = preset.burnDurationSeconds * 1000;
+      this.spreadDirections = preset.spreadDirections;
       this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
       this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
       this.layout();
@@ -280,6 +329,8 @@ export class GameScene extends Phaser.Scene {
               cellSizeScale: params.cellSizeScale,
               buttonSize: params.buttonSize,
               buttonSpacing: params.buttonSpacing,
+              burnDurationSeconds: params.burnDurationSeconds,
+              spreadDirections: params.spreadDirections,
             };
             savePresets(presets);
 
@@ -559,7 +610,7 @@ export class GameScene extends Phaser.Scene {
 
   private startBurnPhase(): void {
     this.phase = "burn";
-    this.phaseTimerMs = BURN_PHASE_DURATION_MS;
+    this.phaseTimerMs = this.burnPhaseDurationMs;
     this.spreadFlames();
     this.layout();
 
@@ -588,7 +639,11 @@ export class GameScene extends Phaser.Scene {
     const next = new Set(this.flames);
     for (const key of this.flames) {
       const [row, col] = parseSquareKey(key);
-      for (const [dRow, dCol] of ADJACENT_OFFSETS) {
+      const directions =
+        this.spreadDirections >= ADJACENT_OFFSETS.length
+          ? ADJACENT_OFFSETS
+          : pickRandomDirections(this.spreadDirections);
+      for (const [dRow, dCol] of directions) {
         const r = row + dRow;
         const c = col + dCol;
         if (r >= 0 && r < this.gridSize && c >= 0 && c < this.gridSize) {
