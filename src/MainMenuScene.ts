@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import GUI from "lil-gui";
-import { createSettingsGui } from "./gameSettings";
+import { createSettingsGui, gameSettings } from "./gameSettings";
+import { generateMap } from "./mapGeneration";
 
 export interface ElementBounds {
   x: number;
@@ -95,7 +96,15 @@ export class MainMenuScene extends Phaser.Scene {
     startButton.on("pointerout", () =>
       startButton.setStyle({ backgroundColor: "#2e7d32" })
     );
-    startButton.on("pointerdown", () => this.scene.start("GameScene"));
+    startButton.on("pointerdown", () => {
+      if (gameSettings.editMapsBeforePlay) {
+        this.scene.start("MapPreviewScene");
+      } else {
+        this.scene.start("GameScene", {
+          map: generateMap(gameSettings.gridSize, gameSettings.gridSize),
+        });
+      }
+    });
 
     this.startButton = startButton;
   }

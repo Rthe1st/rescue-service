@@ -6,6 +6,7 @@ export const DEFAULT_BUTTON_FONT_SIZE = 24;
 export const DEFAULT_BUTTON_SPACING = 50;
 export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
+export const DEFAULT_EDIT_MAPS_BEFORE_PLAY = false;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -16,6 +17,7 @@ export interface GameParams {
   buttonSpacing: number;
   firefightingDurationSeconds: number;
   spreadDirections: number;
+  editMapsBeforePlay: boolean;
 }
 
 export const gameSettings: GameParams = {
@@ -25,6 +27,7 @@ export const gameSettings: GameParams = {
   buttonSpacing: DEFAULT_BUTTON_SPACING,
   firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
+  editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -36,7 +39,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["buttonSize"] === "number" &&
     typeof candidate["buttonSpacing"] === "number" &&
     typeof candidate["firefightingDurationSeconds"] === "number" &&
-    typeof candidate["spreadDirections"] === "number"
+    typeof candidate["spreadDirections"] === "number" &&
+    typeof candidate["editMapsBeforePlay"] === "boolean"
   );
 }
 
@@ -90,6 +94,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "spreadDirections", 1, 4, 1)
     .name("Flame spread directions")
     .onChange(() => onChange?.());
+  const editMapsBeforePlayController = gui
+    .add(gameSettings, "editMapsBeforePlay")
+    .name("Edit maps before play")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -104,12 +112,14 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.buttonSpacing = preset.buttonSpacing;
     gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
+    gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
     spacingController.updateDisplay();
     firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
+    editMapsBeforePlayController.updateDisplay();
 
     onChange?.();
   };
