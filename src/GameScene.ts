@@ -11,6 +11,22 @@ const MARGIN = 20;
 const CONTROLS_GAP = 20;
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
+const FIREFIGHTING_DURATION_MS = 30_000;
+const BURN_PHASE_DURATION_MS = 1_000;
+
+const EMPTY_COLOR = 0xffffff;
+const PLAYER_COLOR = 0x000000;
+const FLAME_COLOR = 0xe53935;
+
+const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+
+type GamePhase = "firefighting" | "burn";
+
 interface GameParams {
   gridSize: number;
   cellSizeScale: number;
@@ -84,6 +100,12 @@ export class GameScene extends Phaser.Scene {
   private buttonSpacing = DEFAULT_BUTTON_SPACING;
   private gui: GUI | undefined;
   private guiVisible = false;
+  private flames = new Set<string>();
+  private phase: GamePhase = "firefighting";
+  private phaseTimerMs = FIREFIGHTING_DURATION_MS;
+  private gameOver = false;
+  private timerText!: Phaser.GameObjects.Text;
+  private statusText!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "GameScene" });
@@ -140,8 +162,26 @@ export class GameScene extends Phaser.Scene {
     this.playerRow = this.gridSize - 1;
     this.playerCol = 0;
 
+    this.phase = "firefighting";
+    this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
+    this.gameOver = false;
+    this.flames = new Set();
+    this.igniteRandomFlame();
+
+    this.timerText = this.add
+      .text(width / 2, 58, "", { fontSize: "16px", color: "#ffffff" })
+      .setOrigin(0.5);
+    this.statusText = this.add
+      .text(width / 2, 58, "", {
+        fontSize: "16px",
+        color: "#ff8a65",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+
     this.layout();
     this.setupDebugGui();
+    this.updatePhaseText();
 
     const handleResize = (): void => {
       this.endGameButton?.setX(this.scale.width / 2);
@@ -279,12 +319,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private layout(): void {
+    this.pruneFlames();
+
     for (const square of this.squares.values()) square.destroy();
     this.squares.clear();
     for (const button of this.controlButtons) button.destroy();
     this.controlButtons = [];
 
     const { width, height } = this.scale;
+    this.timerText.setX(width / 2);
+    this.statusText.setX(width / 2);
     let availableWidth: number;
     let availableHeight: number;
     let controlsCenterX: number;
@@ -345,14 +389,13 @@ export class GameScene extends Phaser.Scene {
   private createBoard(): void {
     for (let row = 0; row < this.gridSize; row++) {
       for (let col = 0; col < this.gridSize; col++) {
-        const isPlayer = row === this.playerRow && col === this.playerCol;
         const square = this.add
           .rectangle(
             this.boardOffsetX + col * this.cellSize,
             this.boardOffsetY + row * this.cellSize,
             this.cellSize,
             this.cellSize,
-            isPlayer ? 0x000000 : 0xffffff
+            this.squareFill(row, col)
           )
           .setOrigin(0, 0)
           .setStrokeStyle(1, 0x888888);
@@ -360,6 +403,12 @@ export class GameScene extends Phaser.Scene {
         this.squares.set(squareKey(row, col), square);
       }
     }
+  }
+
+  private squareFill(row: number, col: number): number {
+    if (row === this.playerRow && col === this.playerCol) return PLAYER_COLOR;
+    if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
+    return EMPTY_COLOR;
   }
 
   private createControls(centerX: number, centerY: number): void {
@@ -406,6 +455,8 @@ export class GameScene extends Phaser.Scene {
       },
     ];
 
+    const movable = this.canMove();
+
     for (const direction of directions) {
       const button = this.add
         .text(direction.x, direction.y, direction.label, {
@@ -415,17 +466,20 @@ export class GameScene extends Phaser.Scene {
           padding,
         })
         .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
+        .setAlpha(movable ? 1 : 0.4);
 
-      button.on("pointerover", () =>
-        button.setStyle({ backgroundColor: "#1976d2" })
-      );
-      button.on("pointerout", () =>
-        button.setStyle({ backgroundColor: "#1565c0" })
-      );
-      button.on("pointerdown", () => {
-        this.movePlayer(direction.dRow, direction.dCol);
-      });
+      if (movable) {
+        button.setInteractive({ useHandCursor: true });
+        button.on("pointerover", () =>
+          button.setStyle({ backgroundColor: "#1976d2" })
+        );
+        button.on("pointerout", () =>
+          button.setStyle({ backgroundColor: "#1565c0" })
+        );
+        button.on("pointerdown", () => {
+          this.movePlayer(direction.dRow, direction.dCol);
+        });
+      }
 
       this.controlButtons.push(button);
       this.controlButtonsByName.set(direction.name, button);
@@ -451,17 +505,32 @@ export class GameScene extends Phaser.Scene {
     return bounds;
   }
 
+  private canMove(): boolean {
+    return this.phase === "firefighting" && !this.gameOver;
+  }
+
   private movePlayer(dRow: number, dCol: number): void {
+    if (!this.canMove()) return;
+
     const row = this.playerRow + dRow;
     const col = this.playerCol + dCol;
     const inBounds =
       row >= 0 && row < this.gridSize && col >= 0 && col < this.gridSize;
     if (!inBounds) return;
 
-    this.getSquare(this.playerRow, this.playerCol).setFillStyle(0xffffff);
-    this.getSquare(row, col).setFillStyle(0x000000);
+    const previousRow = this.playerRow;
+    const previousCol = this.playerCol;
     this.playerRow = row;
     this.playerCol = col;
+
+    this.getSquare(previousRow, previousCol).setFillStyle(
+      this.squareFill(previousRow, previousCol)
+    );
+    this.getSquare(row, col).setFillStyle(this.squareFill(row, col));
+
+    if (this.flames.has(squareKey(row, col))) {
+      this.endGame();
+    }
   }
 
   private getSquare(row: number, col: number): Phaser.GameObjects.Rectangle {
@@ -471,10 +540,118 @@ export class GameScene extends Phaser.Scene {
     }
     return square;
   }
+
+  override update(_time: number, delta: number): void {
+    if (this.gameOver) return;
+
+    this.phaseTimerMs -= delta;
+    if (this.phaseTimerMs > 0) {
+      if (this.phase === "firefighting") this.updatePhaseText();
+      return;
+    }
+
+    if (this.phase === "firefighting") {
+      this.startBurnPhase();
+    } else {
+      this.startFirefightingPhase();
+    }
+  }
+
+  private startBurnPhase(): void {
+    this.phase = "burn";
+    this.phaseTimerMs = BURN_PHASE_DURATION_MS;
+    this.spreadFlames();
+    this.layout();
+
+    if (this.flames.has(squareKey(this.playerRow, this.playerCol))) {
+      this.endGame();
+      return;
+    }
+
+    this.updatePhaseText();
+  }
+
+  private startFirefightingPhase(): void {
+    this.phase = "firefighting";
+    this.phaseTimerMs = FIREFIGHTING_DURATION_MS;
+    this.layout();
+    this.updatePhaseText();
+  }
+
+  private endGame(): void {
+    this.gameOver = true;
+    this.layout();
+    this.updatePhaseText();
+  }
+
+  private spreadFlames(): void {
+    const next = new Set(this.flames);
+    for (const key of this.flames) {
+      const [row, col] = parseSquareKey(key);
+      for (const [dRow, dCol] of ADJACENT_OFFSETS) {
+        const r = row + dRow;
+        const c = col + dCol;
+        if (r >= 0 && r < this.gridSize && c >= 0 && c < this.gridSize) {
+          next.add(squareKey(r, c));
+        }
+      }
+    }
+    this.flames = next;
+  }
+
+  private igniteRandomFlame(): void {
+    const candidates: string[] = [];
+    for (let row = 0; row < this.gridSize; row++) {
+      for (let col = 0; col < this.gridSize; col++) {
+        if (row === this.playerRow && col === this.playerCol) continue;
+        candidates.push(squareKey(row, col));
+      }
+    }
+
+    const choice = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!choice) return;
+    this.flames = new Set([choice]);
+  }
+
+  private pruneFlames(): void {
+    this.flames = new Set(
+      [...this.flames].filter((key) => {
+        const [row, col] = parseSquareKey(key);
+        return row < this.gridSize && col < this.gridSize;
+      })
+    );
+  }
+
+  private updatePhaseText(): void {
+    if (this.gameOver) {
+      this.timerText.setVisible(false);
+      this.statusText
+        .setText("💀 Caught in the flames! Game Over")
+        .setVisible(true);
+      return;
+    }
+
+    if (this.phase === "burn") {
+      this.timerText.setVisible(false);
+      this.statusText.setText("🔥 Fire is spreading!").setVisible(true);
+      return;
+    }
+
+    this.statusText.setVisible(false);
+    const seconds = Math.max(0, Math.ceil(this.phaseTimerMs / 1000));
+    this.timerText
+      .setText(`🧯 Firefighting: ${String(seconds)}s`)
+      .setVisible(true);
+  }
 }
 
 function squareKey(row: number, col: number): string {
   return `${String(row)}-${String(col)}`;
+}
+
+function parseSquareKey(key: string): [number, number] {
+  const [rowPart, colPart] = key.split("-");
+  return [Number(rowPart), Number(colPart)];
 }
 
 function rectFromBounds(
