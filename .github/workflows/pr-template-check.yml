@@ -3,9 +3,12 @@ name: PR Template Check
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - "**"
 
 concurrency:
-  group: pr-template-check-${{ github.event.pull_request.number }}
+  group: pr-template-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -23,8 +26,34 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const pr = context.payload.pull_request;
-            const headSha = pr.head.sha;
+
+            let pr;
+            let headSha;
+            if (context.eventName === "pull_request") {
+              pr = context.payload.pull_request;
+              headSha = pr.head.sha;
+            } else {
+              // A push to a PR's branch is supposed to trigger `pull_request: synchronize`,
+              // which is what normally re-runs this check. That event has been observed to
+              // silently not fire for some pushes (see issue #30), which let a stale preview
+              // link merge without this check ever running against the final commit. Also
+              // running on `push` gives this check a second, independent path to the same
+              // commit so a missed `pull_request` delivery doesn't mean the link goes
+              // unchecked.
+              const branch = context.payload.ref.replace(/^refs\/heads\//, "");
+              const { data: prs } = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: "open",
+                head: `${owner}:${branch}`,
+              });
+              if (prs.length === 0) {
+                core.info(`No open PR found for branch "${branch}"; skipping template check.`);
+                return;
+              }
+              pr = prs[0];
+              headSha = context.payload.after;
+            }
 
             const { data: templateFile } = await github.rest.repos.getContent({
               owner,
