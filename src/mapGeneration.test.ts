@@ -30,28 +30,25 @@ function countFloorTiles(map: GameMap): number {
   return count;
 }
 
-function reachableFromDoors(map: GameMap): boolean[][] {
-  const visited = map.tiles.map((row) => row.map(() => false));
-  const queue: Array<[number, number]> = [];
-
+function findDoorTiles(map: GameMap): Array<[number, number]> {
+  const doors: Array<[number, number]> = [];
   for (let x = 0; x < map.width; x++) {
-    for (const y of [0, map.height - 1]) {
-      const row = visited[y];
-      if (row && getTile(map, x, y) === "floor" && !row[x]) {
-        row[x] = true;
-        queue.push([x, y]);
-      }
-    }
+    if (getTile(map, x, 0) === "floor") doors.push([x, 0]);
+    if (getTile(map, x, map.height - 1) === "floor") doors.push([x, map.height - 1]);
   }
-  for (let y = 0; y < map.height; y++) {
-    for (const x of [0, map.width - 1]) {
-      const row = visited[y];
-      if (row && getTile(map, x, y) === "floor" && !row[x]) {
-        row[x] = true;
-        queue.push([x, y]);
-      }
-    }
+  for (let y = 1; y < map.height - 1; y++) {
+    if (getTile(map, 0, y) === "floor") doors.push([0, y]);
+    if (getTile(map, map.width - 1, y) === "floor") doors.push([map.width - 1, y]);
   }
+  return doors;
+}
+
+function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
+  const visited = map.tiles.map((row) => row.map(() => false));
+  const queue: Array<[number, number]> = [start];
+  const [startX, startY] = start;
+  const startRow = visited[startY];
+  if (startRow) startRow[startX] = true;
 
   let head = 0;
   while (head < queue.length) {
@@ -169,22 +166,27 @@ describe("generateMap", () => {
     [30, 24],
     [9, 9],
   ])(
-    "makes every room reachable from a door via floor tiles only (%ix%i)",
+    "makes every floor tile reachable from EVERY individual door, not just the union of doors (%ix%i)",
     (width, height) => {
       for (let seed = 0; seed < 5; seed++) {
         const map = generateMap(width, height, {
           doorCount: (seed % MAX_DOOR_COUNT) + 1,
           random: mulberry32(width * 1000 + height * 10 + seed),
         });
-        const reachable = reachableFromDoors(map);
+        const doors = findDoorTiles(map);
+        expect(doors.length).toBeGreaterThan(0);
 
-        for (let y = 0; y < map.height; y++) {
-          for (let x = 0; x < map.width; x++) {
-            if (getTile(map, x, y) === "floor") {
-              expect(
-                reachable[y]?.[x],
-                `expected floor tile (${String(x)}, ${String(y)}) to be reachable from a door`
-              ).toBe(true);
+        for (const door of doors) {
+          const reachable = reachableFrom(map, door);
+
+          for (let y = 0; y < map.height; y++) {
+            for (let x = 0; x < map.width; x++) {
+              if (getTile(map, x, y) === "floor") {
+                expect(
+                  reachable[y]?.[x],
+                  `expected door (${String(door[0])}, ${String(door[1])}) to reach floor tile (${String(x)}, ${String(y)})`
+                ).toBe(true);
+              }
             }
           }
         }
