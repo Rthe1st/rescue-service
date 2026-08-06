@@ -3,18 +3,14 @@ import {
   DEFAULT_DOOR_COUNT,
   MAX_DOOR_COUNT,
   MIN_DOOR_COUNT,
+  canPass,
+  createBlankMap,
   generateMap,
-  getTile,
+  hasWall,
+  isInBounds,
   placeRooms,
   type GameMap,
-  type Tile,
 } from "./mapGeneration";
-
-function createWallGrid(width: number, height: number): Tile[][] {
-  return Array.from({ length: height }, () =>
-    Array.from({ length: width }, (): Tile => "wall")
-  );
-}
 
 // Deterministic PRNG so map generation is reproducible across test runs.
 function mulberry32(seed: number): () => number {
@@ -28,31 +24,27 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function countFloorTiles(map: GameMap): number {
-  let count = 0;
-  for (const row of map.tiles) {
-    for (const tile of row) {
-      if (tile === "floor") count++;
-    }
-  }
-  return count;
-}
-
 function findDoorTiles(map: GameMap): Array<[number, number]> {
   const doors: Array<[number, number]> = [];
-  for (let x = 0; x < map.width; x++) {
-    if (getTile(map, x, 0) === "floor") doors.push([x, 0]);
-    if (getTile(map, x, map.height - 1) === "floor") doors.push([x, map.height - 1]);
+  for (let x = 1; x < map.width - 1; x++) {
+    if (!hasWall(map, x, 0, x, -1)) doors.push([x, 0]);
+    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push([x, map.height - 1]);
   }
   for (let y = 1; y < map.height - 1; y++) {
-    if (getTile(map, 0, y) === "floor") doors.push([0, y]);
-    if (getTile(map, map.width - 1, y) === "floor") doors.push([map.width - 1, y]);
+    if (!hasWall(map, 0, y, -1, y)) doors.push([0, y]);
+    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push([map.width - 1, y]);
   }
   return doors;
 }
 
+function countDoors(map: GameMap): number {
+  return findDoorTiles(map).length;
+}
+
 function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
-  const visited = map.tiles.map((row) => row.map(() => false));
+  const visited = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => false)
+  );
   const queue: Array<[number, number]> = [start];
   const [startX, startY] = start;
   const startRow = visited[startY];
@@ -73,10 +65,10 @@ function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
     ] as const) {
       const nx = x + dx;
       const ny = y + dy;
-      if (nx < 0 || nx >= map.width || ny < 0 || ny >= map.height) continue;
+      if (!isInBounds(map, nx, ny)) continue;
       const row = visited[ny];
       if (!row || row[nx]) continue;
-      if (getTile(map, nx, ny) !== "floor") continue;
+      if (!canPass(map, x, y, nx, ny)) continue;
       row[nx] = true;
       queue.push([nx, ny]);
     }
@@ -90,43 +82,13 @@ describe("generateMap", () => {
     const map = generateMap(20, 14, { random: mulberry32(1) });
     expect(map.width).toBe(20);
     expect(map.height).toBe(14);
-    expect(map.tiles).toHaveLength(14);
-    for (const row of map.tiles) expect(row).toHaveLength(20);
-  });
-
-  it("puts a wall on every outer tile", () => {
-    const map = generateMap(20, 16, { random: mulberry32(2) });
-    for (let x = 0; x < map.width; x++) {
-      expect(["wall", "floor"]).toContain(getTile(map, x, 0));
-      expect(["wall", "floor"]).toContain(getTile(map, x, map.height - 1));
-    }
-  });
-
-  it("only turns border tiles into doors, never interior tiles", () => {
-    const map = generateMap(24, 18, { doorCount: 4, random: mulberry32(3) });
-    for (let y = 1; y < map.height - 1; y++) {
-      for (let x = 1; x < map.width - 1; x++) {
-        // Interior floor tiles must belong to a 3x3 room, never a lone carved border tile.
-        if (getTile(map, x, y) === "floor") continue;
-        expect(getTile(map, x, y)).toBe("wall");
-      }
-    }
   });
 
   it.each([1, 2, 3, 5, 10])(
     "carves exactly the requested number of doors (%i) into the border",
     (doorCount) => {
       const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount) });
-      let doorTiles = 0;
-      for (let x = 0; x < map.width; x++) {
-        if (getTile(map, x, 0) === "floor") doorTiles++;
-        if (getTile(map, x, map.height - 1) === "floor") doorTiles++;
-      }
-      for (let y = 1; y < map.height - 1; y++) {
-        if (getTile(map, 0, y) === "floor") doorTiles++;
-        if (getTile(map, map.width - 1, y) === "floor") doorTiles++;
-      }
-      expect(doorTiles).toBe(doorCount);
+      expect(countDoors(map)).toBe(doorCount);
     }
   );
 
@@ -138,33 +100,20 @@ describe("generateMap", () => {
     "clamps out-of-range doorCount (%i) into the 1-10 range",
     (doorCount) => {
       const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount + 50) });
-      let doorTiles = 0;
-      for (let x = 0; x < map.width; x++) {
-        if (getTile(map, x, 0) === "floor") doorTiles++;
-        if (getTile(map, x, map.height - 1) === "floor") doorTiles++;
-      }
-      for (let y = 1; y < map.height - 1; y++) {
-        if (getTile(map, 0, y) === "floor") doorTiles++;
-        if (getTile(map, map.width - 1, y) === "floor") doorTiles++;
-      }
+      const doorTiles = countDoors(map);
       expect(doorTiles).toBeGreaterThanOrEqual(MIN_DOOR_COUNT);
       expect(doorTiles).toBeLessThanOrEqual(MAX_DOOR_COUNT);
     }
   );
 
-  it("fills the interior with rooms", () => {
-    const map = generateMap(13, 9, { random: mulberry32(4) });
-    expect(countFloorTiles(map)).toBeGreaterThan(0);
-  });
-
-  it("produces no rooms on a map too small to fit even the smallest room, though doors may still be carved", () => {
-    // A 3x3 map has a 1x1 interior, too small for even the smallest (2x1/1x2) room.
+  it("produces no rooms on a map too small to fit even the smallest room, so no interior tiles can pass into each other", () => {
+    // A 3x3 map has no room-sized space (smallest room is 2x1/1x2), so no
+    // interior walls get opened at all.
     const map = generateMap(3, 3, { random: mulberry32(5) });
-    for (let y = 1; y < map.height - 1; y++) {
-      for (let x = 1; x < map.width - 1; x++) {
-        expect(getTile(map, x, y)).toBe("wall");
-      }
-    }
+    expect(canPass(map, 1, 1, 1, 0)).toBe(false);
+    expect(canPass(map, 1, 1, 1, 2)).toBe(false);
+    expect(canPass(map, 1, 1, 0, 1)).toBe(false);
+    expect(canPass(map, 1, 1, 2, 1)).toBe(false);
   });
 
   it.each([
@@ -174,7 +123,7 @@ describe("generateMap", () => {
     [30, 24],
     [9, 9],
   ])(
-    "makes every floor tile reachable from EVERY individual door, not just the union of doors (%ix%i)",
+    "makes every room/door tile reachable from EVERY individual door, not just the union of doors (%ix%i)",
     (width, height) => {
       for (let seed = 0; seed < 5; seed++) {
         const map = generateMap(width, height, {
@@ -186,16 +135,11 @@ describe("generateMap", () => {
 
         for (const door of doors) {
           const reachable = reachableFrom(map, door);
-
-          for (let y = 0; y < map.height; y++) {
-            for (let x = 0; x < map.width; x++) {
-              if (getTile(map, x, y) === "floor") {
-                expect(
-                  reachable[y]?.[x],
-                  `expected door (${String(door[0])}, ${String(door[1])}) to reach floor tile (${String(x)}, ${String(y)})`
-                ).toBe(true);
-              }
-            }
+          for (const otherDoor of doors) {
+            expect(
+              reachable[otherDoor[1]]?.[otherDoor[0]],
+              `expected door (${String(door[0])}, ${String(door[1])}) to reach door (${String(otherDoor[0])}, ${String(otherDoor[1])})`
+            ).toBe(true);
           }
         }
       }
@@ -205,7 +149,7 @@ describe("generateMap", () => {
   it("is deterministic for a given random source", () => {
     const mapA = generateMap(20, 16, { doorCount: 3, random: mulberry32(42) });
     const mapB = generateMap(20, 16, { doorCount: 3, random: mulberry32(42) });
-    expect(mapA.tiles).toEqual(mapB.tiles);
+    expect([...mapA.walls].sort()).toEqual([...mapB.walls].sort());
   });
 
   it.each([
@@ -224,8 +168,8 @@ describe("placeRooms", () => {
 
   it("places rooms whose sides are each in the 1-4 range, never a degenerate 1x1", () => {
     for (let seed = 0; seed < 10; seed++) {
-      const tiles = createWallGrid(WIDTH, HEIGHT);
-      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed));
+      const map = createBlankMap(WIDTH, HEIGHT);
+      const rooms = placeRooms(map, mulberry32(seed));
       expect(rooms.length).toBeGreaterThan(0);
 
       for (const room of rooms) {
@@ -243,8 +187,8 @@ describe("placeRooms", () => {
     let sawTall = false;
 
     for (let seed = 0; seed < 30; seed++) {
-      const tiles = createWallGrid(WIDTH, HEIGHT);
-      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 1000));
+      const map = createBlankMap(WIDTH, HEIGHT);
+      const rooms = placeRooms(map, mulberry32(seed + 1000));
       for (const room of rooms) {
         if (room.width > room.height) sawWide = true;
         if (room.height > room.width) sawTall = true;
@@ -255,76 +199,80 @@ describe("placeRooms", () => {
     expect(sawTall).toBe(true);
   });
 
-  it("keeps every room within the interior, never touching the border", () => {
+  it("keeps every room within the map bounds", () => {
     for (let seed = 0; seed < 10; seed++) {
-      const tiles = createWallGrid(WIDTH, HEIGHT);
-      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 2000));
+      const map = createBlankMap(WIDTH, HEIGHT);
+      const rooms = placeRooms(map, mulberry32(seed + 2000));
 
       for (const room of rooms) {
-        expect(room.left).toBeGreaterThanOrEqual(1);
-        expect(room.top).toBeGreaterThanOrEqual(1);
-        expect(room.left + room.width).toBeLessThanOrEqual(WIDTH - 1);
-        expect(room.top + room.height).toBeLessThanOrEqual(HEIGHT - 1);
+        expect(room.left).toBeGreaterThanOrEqual(0);
+        expect(room.top).toBeGreaterThanOrEqual(0);
+        expect(room.left + room.width).toBeLessThanOrEqual(WIDTH);
+        expect(room.top + room.height).toBeLessThanOrEqual(HEIGHT);
       }
     }
   });
 
-  it("keeps rooms non-overlapping with at least one wall tile of separation", () => {
+  it("never places overlapping rooms", () => {
     for (let seed = 0; seed < 10; seed++) {
-      const tiles = createWallGrid(WIDTH, HEIGHT);
-      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 3000));
+      const map = createBlankMap(WIDTH, HEIGHT);
+      const rooms = placeRooms(map, mulberry32(seed + 3000));
+      let overlapFound = false;
 
-      for (let i = 0; i < rooms.length; i++) {
+      for (let i = 0; i < rooms.length && !overlapFound; i++) {
         const a = rooms[i];
         if (!a) continue;
         for (let j = i + 1; j < rooms.length; j++) {
           const b = rooms[j];
           if (!b) continue;
-          // Inflate `a` by one tile on every side; it must not overlap `b`.
           const overlaps =
-            a.left - 1 < b.left + b.width &&
-            a.left + a.width + 1 > b.left &&
-            a.top - 1 < b.top + b.height &&
-            a.top + a.height + 1 > b.top;
-          expect(
-            overlaps,
-            `rooms ${String(i)} and ${String(j)} are not separated by a wall tile`
-          ).toBe(false);
+            a.left < b.left + b.width &&
+            a.left + a.width > b.left &&
+            a.top < b.top + b.height &&
+            a.top + a.height > b.top;
+          if (overlaps) {
+            overlapFound = true;
+            break;
+          }
         }
       }
+
+      expect(overlapFound).toBe(false);
     }
   });
 
-  it("marks exactly each room's footprint as floor, matching total floor tile count", () => {
-    const tiles = createWallGrid(WIDTH, HEIGHT);
-    const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(4242));
+  it("opens every internal wall inside a room, so any two tiles in a room can reach each other", () => {
+    const map = createBlankMap(WIDTH, HEIGHT);
+    const rooms = placeRooms(map, mulberry32(4242));
 
-    let expectedFloorTiles = 0;
     for (const room of rooms) {
-      expectedFloorTiles += room.width * room.height;
       for (let y = room.top; y < room.top + room.height; y++) {
         for (let x = room.left; x < room.left + room.width; x++) {
-          expect(tiles[y]?.[x]).toBe("floor");
+          if (x + 1 < room.left + room.width) {
+            expect(canPass(map, x, y, x + 1, y)).toBe(true);
+          }
+          if (y + 1 < room.top + room.height) {
+            expect(canPass(map, x, y, x, y + 1)).toBe(true);
+          }
         }
       }
     }
-
-    let actualFloorTiles = 0;
-    for (const row of tiles) {
-      for (const tile of row) {
-        if (tile === "floor") actualFloorTiles++;
-      }
-    }
-    expect(actualFloorTiles).toBe(expectedFloorTiles);
   });
 });
 
-describe("getTile", () => {
-  it("throws for coordinates outside the map", () => {
-    const map = generateMap(10, 10, { random: mulberry32(6) });
-    expect(() => getTile(map, -1, 0)).toThrow();
-    expect(() => getTile(map, 0, -1)).toThrow();
-    expect(() => getTile(map, map.width, 0)).toThrow();
-    expect(() => getTile(map, 0, map.height)).toThrow();
+describe("hasWall / canPass / isInBounds", () => {
+  it("blocks movement between tiles with no room or carved corridor between them", () => {
+    const map = createBlankMap(10, 10);
+    expect(hasWall(map, 5, 5, 6, 5)).toBe(true);
+    expect(canPass(map, 5, 5, 6, 5)).toBe(false);
+  });
+
+  it("reports out-of-bounds coordinates as impassable", () => {
+    const map = createBlankMap(10, 10);
+    expect(isInBounds(map, -1, 0)).toBe(false);
+    expect(isInBounds(map, 0, -1)).toBe(false);
+    expect(isInBounds(map, map.width, 0)).toBe(false);
+    expect(isInBounds(map, 0, map.height)).toBe(false);
+    expect(canPass(map, 0, 0, -1, 0)).toBe(false);
   });
 });
