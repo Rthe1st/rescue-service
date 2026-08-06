@@ -9,7 +9,8 @@ export interface GameMap {
 export interface Room {
   left: number;
   top: number;
-  size: number;
+  width: number;
+  height: number;
 }
 
 export interface GenerateMapOptions {
@@ -23,9 +24,12 @@ export const DEFAULT_DOOR_COUNT = 2;
 export const MIN_DOOR_COUNT = 1;
 export const MAX_DOOR_COUNT = 10;
 
-const ROOM_SIZE = 3;
-const ROOM_GAP = 1;
-const ROOM_STEP = ROOM_SIZE + ROOM_GAP;
+// Each room's width and height are independently randomized in this range
+// (so both orientations of e.g. a 2x1 room are equally likely), rerolling
+// the degenerate 1x1 case since the smallest allowed room is 2x1/1x2.
+const MIN_ROOM_SIDE = 1;
+const MAX_ROOM_SIDE = 4;
+const ROOM_PLACEMENT_ATTEMPTS_PER_CELL = 4;
 
 const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [1, 0],
@@ -51,7 +55,7 @@ export function generateMap(
   );
 
   const tiles = createWalledGrid(width, height);
-  const rooms = placeRooms(tiles, width, height);
+  const rooms = placeRooms(tiles, width, height, random);
   placeDoors(tiles, width, height, doorCount, random);
 
   connectRooms(tiles, width, height, rooms);
@@ -74,25 +78,90 @@ function createWalledGrid(width: number, height: number): Tile[][] {
   );
 }
 
-function placeRooms(tiles: Tile[][], width: number, height: number): Room[] {
+// Randomly places non-overlapping rooms (2x1 up to 4x4, either orientation)
+// into the interior until no more attempts yield a valid spot. Each attempt
+// tries a random size and position rather than tiling a fixed grid, since
+// room sizes now vary.
+// Exported so tests can inspect room sizes/positions directly, before
+// connectRooms carves corridors that make rooms indistinguishable from
+// doors and hallways in the final tile grid.
+export function placeRooms(
+  tiles: Tile[][],
+  width: number,
+  height: number,
+  random: () => number
+): Room[] {
   const rooms: Room[] = [];
-  const lastTop = height - ROOM_SIZE - 1;
-  const lastLeft = width - ROOM_SIZE - 1;
+  const interiorWidth = width - 2;
+  const interiorHeight = height - 2;
+  if (interiorWidth < 1 || interiorHeight < 1) return rooms;
 
-  for (let top = 1; top <= lastTop; top += ROOM_STEP) {
-    for (let left = 1; left <= lastLeft; left += ROOM_STEP) {
-      for (let y = top; y < top + ROOM_SIZE; y++) {
-        const row = tiles[y];
-        if (!row) continue;
-        for (let x = left; x < left + ROOM_SIZE; x++) {
-          row[x] = "floor";
-        }
-      }
-      rooms.push({ left, top, size: ROOM_SIZE });
-    }
+  const attempts = Math.max(
+    50,
+    interiorWidth * interiorHeight * ROOM_PLACEMENT_ATTEMPTS_PER_CELL
+  );
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const room = randomRoom(width, height, random);
+    if (!room) continue;
+    if (roomOverlapsAny(room, rooms)) continue;
+
+    fillRoom(tiles, room);
+    rooms.push(room);
   }
 
   return rooms;
+}
+
+function randomRoom(
+  mapWidth: number,
+  mapHeight: number,
+  random: () => number
+): Room | undefined {
+  const roomWidth = randomRoomSide(random);
+  const roomHeight = randomRoomSide(random);
+  if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
+
+  const maxLeft = mapWidth - 1 - roomWidth;
+  const maxTop = mapHeight - 1 - roomHeight;
+  if (maxLeft < 1 || maxTop < 1) return undefined;
+
+  const left = 1 + Math.floor(random() * maxLeft);
+  const top = 1 + Math.floor(random() * maxTop);
+
+  return { left, top, width: roomWidth, height: roomHeight };
+}
+
+function randomRoomSide(random: () => number): number {
+  return MIN_ROOM_SIDE + Math.floor(random() * (MAX_ROOM_SIDE - MIN_ROOM_SIDE + 1));
+}
+
+// Rejects the candidate if it (inflated by a 1-tile buffer on every side)
+// overlaps any already-placed room, guaranteeing at least one wall tile of
+// separation between any two rooms.
+function roomOverlapsAny(candidate: Room, rooms: Room[]): boolean {
+  const left = candidate.left - 1;
+  const top = candidate.top - 1;
+  const right = candidate.left + candidate.width + 1;
+  const bottom = candidate.top + candidate.height + 1;
+
+  for (const room of rooms) {
+    const roomRight = room.left + room.width;
+    const roomBottom = room.top + room.height;
+    const overlaps = left < roomRight && right > room.left && top < roomBottom && bottom > room.top;
+    if (overlaps) return true;
+  }
+  return false;
+}
+
+function fillRoom(tiles: Tile[][], room: Room): void {
+  for (let y = room.top; y < room.top + room.height; y++) {
+    const row = tiles[y];
+    if (!row) continue;
+    for (let x = room.left; x < room.left + room.width; x++) {
+      row[x] = "floor";
+    }
+  }
 }
 
 interface Point {

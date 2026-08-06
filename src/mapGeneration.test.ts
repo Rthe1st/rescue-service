@@ -5,8 +5,16 @@ import {
   MIN_DOOR_COUNT,
   generateMap,
   getTile,
+  placeRooms,
   type GameMap,
+  type Tile,
 } from "./mapGeneration";
+
+function createWallGrid(width: number, height: number): Tile[][] {
+  return Array.from({ length: height }, () =>
+    Array.from({ length: width }, (): Tile => "wall")
+  );
+}
 
 // Deterministic PRNG so map generation is reproducible across test runs.
 function mulberry32(seed: number): () => number {
@@ -144,14 +152,14 @@ describe("generateMap", () => {
     }
   );
 
-  it("fills the interior with 3x3 rooms", () => {
+  it("fills the interior with rooms", () => {
     const map = generateMap(13, 9, { random: mulberry32(4) });
-    // 9x9... interior is 11x7, fits two 3-wide room columns (3+1+3) and one 3-tall room row.
     expect(countFloorTiles(map)).toBeGreaterThan(0);
   });
 
-  it("produces no rooms on a map too small to fit one, though doors may still be carved", () => {
-    const map = generateMap(4, 4, { random: mulberry32(5) });
+  it("produces no rooms on a map too small to fit even the smallest room, though doors may still be carved", () => {
+    // A 3x3 map has a 1x1 interior, too small for even the smallest (2x1/1x2) room.
+    const map = generateMap(3, 3, { random: mulberry32(5) });
     for (let y = 1; y < map.height - 1; y++) {
       for (let x = 1; x < map.width - 1; x++) {
         expect(getTile(map, x, y)).toBe("wall");
@@ -207,6 +215,107 @@ describe("generateMap", () => {
     [1.5, 5],
   ])("rejects invalid dimensions (%i, %i)", (width, height) => {
     expect(() => generateMap(width, height)).toThrow();
+  });
+});
+
+describe("placeRooms", () => {
+  const WIDTH = 40;
+  const HEIGHT = 40;
+
+  it("places rooms whose sides are each in the 1-4 range, never a degenerate 1x1", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const tiles = createWallGrid(WIDTH, HEIGHT);
+      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed));
+      expect(rooms.length).toBeGreaterThan(0);
+
+      for (const room of rooms) {
+        expect(room.width).toBeGreaterThanOrEqual(1);
+        expect(room.width).toBeLessThanOrEqual(4);
+        expect(room.height).toBeGreaterThanOrEqual(1);
+        expect(room.height).toBeLessThanOrEqual(4);
+        expect(room.width === 1 && room.height === 1).toBe(false);
+      }
+    }
+  });
+
+  it("produces rooms in both orientations (wider-than-tall and taller-than-wide) across trials", () => {
+    let sawWide = false;
+    let sawTall = false;
+
+    for (let seed = 0; seed < 30; seed++) {
+      const tiles = createWallGrid(WIDTH, HEIGHT);
+      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 1000));
+      for (const room of rooms) {
+        if (room.width > room.height) sawWide = true;
+        if (room.height > room.width) sawTall = true;
+      }
+    }
+
+    expect(sawWide).toBe(true);
+    expect(sawTall).toBe(true);
+  });
+
+  it("keeps every room within the interior, never touching the border", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const tiles = createWallGrid(WIDTH, HEIGHT);
+      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 2000));
+
+      for (const room of rooms) {
+        expect(room.left).toBeGreaterThanOrEqual(1);
+        expect(room.top).toBeGreaterThanOrEqual(1);
+        expect(room.left + room.width).toBeLessThanOrEqual(WIDTH - 1);
+        expect(room.top + room.height).toBeLessThanOrEqual(HEIGHT - 1);
+      }
+    }
+  });
+
+  it("keeps rooms non-overlapping with at least one wall tile of separation", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const tiles = createWallGrid(WIDTH, HEIGHT);
+      const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(seed + 3000));
+
+      for (let i = 0; i < rooms.length; i++) {
+        const a = rooms[i];
+        if (!a) continue;
+        for (let j = i + 1; j < rooms.length; j++) {
+          const b = rooms[j];
+          if (!b) continue;
+          // Inflate `a` by one tile on every side; it must not overlap `b`.
+          const overlaps =
+            a.left - 1 < b.left + b.width &&
+            a.left + a.width + 1 > b.left &&
+            a.top - 1 < b.top + b.height &&
+            a.top + a.height + 1 > b.top;
+          expect(
+            overlaps,
+            `rooms ${String(i)} and ${String(j)} are not separated by a wall tile`
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("marks exactly each room's footprint as floor, matching total floor tile count", () => {
+    const tiles = createWallGrid(WIDTH, HEIGHT);
+    const rooms = placeRooms(tiles, WIDTH, HEIGHT, mulberry32(4242));
+
+    let expectedFloorTiles = 0;
+    for (const room of rooms) {
+      expectedFloorTiles += room.width * room.height;
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          expect(tiles[y]?.[x]).toBe("floor");
+        }
+      }
+    }
+
+    let actualFloorTiles = 0;
+    for (const row of tiles) {
+      for (const tile of row) {
+        if (tile === "floor") actualFloorTiles++;
+      }
+    }
+    expect(actualFloorTiles).toBe(expectedFloorTiles);
   });
 });
 
