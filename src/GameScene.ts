@@ -1,7 +1,13 @@
 import Phaser from "phaser";
 import GUI from "lil-gui";
 import { DEFAULT_GRID_SIZE, createSettingsGui, gameSettings } from "./gameSettings";
-import { generateMap, getTile, type GameMap } from "./mapGeneration";
+import {
+  canPass,
+  generateMap,
+  getWallSegments,
+  type GameMap,
+  type WallSegment,
+} from "./mapGeneration";
 
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 80;
@@ -11,7 +17,7 @@ const CONTROLS_GAP = 20;
 const BURN_PHASE_DURATION_MS = 1_000;
 
 const EMPTY_COLOR = 0xffffff;
-const WALL_COLOR = 0x455a64;
+const WALL_COLOR = 0x212121;
 const PLAYER_COLOR = 0x000000;
 const FLAME_COLOR = 0xe53935;
 
@@ -64,6 +70,7 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetX = 0;
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
+  private wallGraphics: Phaser.GameObjects.Graphics | undefined;
   private controlButtons: Phaser.GameObjects.Text[] = [];
   private controlButtonsByName = new Map<string, Phaser.GameObjects.Text>();
   private endGameButton: Phaser.GameObjects.Text | undefined;
@@ -188,9 +195,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private placePlayerAtStart(): void {
-    const start = findNearestFloorTile(this.map, this.gridSize - 1, 0);
-    this.playerRow = start.row;
-    this.playerCol = start.col;
+    this.playerRow = this.gridSize - 1;
+    this.playerCol = 0;
   }
 
   private setupDebugGui(): void {
@@ -295,6 +301,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.createBoard();
+    this.drawWalls();
     this.createControls(controlsCenterX, controlsCenterY);
   }
 
@@ -317,10 +324,28 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private drawWalls(): void {
+    this.wallGraphics?.destroy();
+    const graphics = this.add.graphics();
+    const lineWidth = Math.max(3, Math.round(this.cellSize * 0.12));
+    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
+
+    for (const segment of getWallSegments(this.map)) {
+      const line = wallSegmentToLine(
+        segment,
+        this.boardOffsetX,
+        this.boardOffsetY,
+        this.cellSize
+      );
+      graphics.lineBetween(line.x1, line.y1, line.x2, line.y2);
+    }
+
+    this.wallGraphics = graphics;
+  }
+
   private squareFill(row: number, col: number): number {
     if (row === this.playerRow && col === this.playerCol) return PLAYER_COLOR;
     if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
-    if (getTile(this.map, col, row) === "wall") return WALL_COLOR;
     return EMPTY_COLOR;
   }
 
@@ -427,10 +452,7 @@ export class GameScene extends Phaser.Scene {
 
     const row = this.playerRow + dRow;
     const col = this.playerCol + dCol;
-    const inBounds =
-      row >= 0 && row < this.gridSize && col >= 0 && col < this.gridSize;
-    if (!inBounds) return;
-    if (getTile(this.map, col, row) === "wall") return;
+    if (!canPass(this.map, this.playerCol, this.playerRow, col, row)) return;
 
     const previousRow = this.playerRow;
     const previousCol = this.playerCol;
@@ -509,13 +531,7 @@ export class GameScene extends Phaser.Scene {
       for (const [dRow, dCol] of directions) {
         const r = row + dRow;
         const c = col + dCol;
-        if (
-          r >= 0 &&
-          r < this.gridSize &&
-          c >= 0 &&
-          c < this.gridSize &&
-          getTile(this.map, c, r) === "floor"
-        ) {
+        if (canPass(this.map, col, row, c, r)) {
           next.add(squareKey(r, c));
         }
       }
@@ -528,7 +544,6 @@ export class GameScene extends Phaser.Scene {
     for (let row = 0; row < this.gridSize; row++) {
       for (let col = 0; col < this.gridSize; col++) {
         if (row === this.playerRow && col === this.playerCol) continue;
-        if (getTile(this.map, col, row) !== "floor") continue;
         candidates.push(squareKey(row, col));
       }
     }
@@ -575,27 +590,23 @@ function parseSquareKey(key: string): [number, number] {
   return [Number(rowPart), Number(colPart)];
 }
 
-function findNearestFloorTile(
-  map: GameMap,
-  preferredRow: number,
-  preferredCol: number
-): { row: number; col: number } {
-  let best: { row: number; col: number } | undefined;
-  let bestDistance = Infinity;
-
-  for (let row = 0; row < map.height; row++) {
-    for (let col = 0; col < map.width; col++) {
-      if (getTile(map, col, row) !== "floor") continue;
-      const distance = Math.abs(row - preferredRow) + Math.abs(col - preferredCol);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = { row, col };
-      }
-    }
+function wallSegmentToLine(
+  segment: WallSegment,
+  boardOffsetX: number,
+  boardOffsetY: number,
+  cellSize: number
+): { x1: number; y1: number; x2: number; y2: number } {
+  if (segment.x1 === segment.x2) {
+    const rowBoundary = Math.max(segment.y1, segment.y2);
+    const y = boardOffsetY + rowBoundary * cellSize;
+    const xStart = boardOffsetX + segment.x1 * cellSize;
+    return { x1: xStart, y1: y, x2: xStart + cellSize, y2: y };
   }
 
-  if (!best) throw new Error("Generated map has no floor tiles");
-  return best;
+  const colBoundary = Math.max(segment.x1, segment.x2);
+  const x = boardOffsetX + colBoundary * cellSize;
+  const yStart = boardOffsetY + segment.y1 * cellSize;
+  return { x1: x, y1: yStart, x2: x, y2: yStart + cellSize };
 }
 
 function rectFromBounds(

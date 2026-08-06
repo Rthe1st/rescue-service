@@ -1,6 +1,11 @@
 import Phaser from "phaser";
 import { gameSettings } from "./gameSettings";
-import { generateMap, getTile, type GameMap } from "./mapGeneration";
+import {
+  generateMap,
+  getWallSegments,
+  type GameMap,
+  type WallSegment,
+} from "./mapGeneration";
 
 export interface ElementBounds {
   x: number;
@@ -15,7 +20,7 @@ const BUTTONS_AREA_HEIGHT = 100;
 const BUTTON_GAP = 20;
 
 const FLOOR_COLOR = 0xffffff;
-const WALL_COLOR = 0x455a64;
+const WALL_COLOR = 0x212121;
 
 export class MapPreviewScene extends Phaser.Scene {
   private map!: GameMap;
@@ -24,6 +29,7 @@ export class MapPreviewScene extends Phaser.Scene {
   private boardOffsetX = 0;
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
+  private wallGraphics: Phaser.GameObjects.Graphics | undefined;
   private titleText: Phaser.GameObjects.Text | undefined;
   private startButton: Phaser.GameObjects.Text | undefined;
   private regenerateButton: Phaser.GameObjects.Text | undefined;
@@ -82,14 +88,13 @@ export class MapPreviewScene extends Phaser.Scene {
 
     for (let row = 0; row < this.gridSize; row++) {
       for (let col = 0; col < this.gridSize; col++) {
-        const tile = getTile(this.map, col, row);
         const square = this.add
           .rectangle(
             this.boardOffsetX + col * this.cellSize,
             this.boardOffsetY + row * this.cellSize,
             this.cellSize,
             this.cellSize,
-            tile === "wall" ? WALL_COLOR : FLOOR_COLOR
+            FLOOR_COLOR
           )
           .setOrigin(0, 0)
           .setStrokeStyle(1, 0x888888);
@@ -97,6 +102,27 @@ export class MapPreviewScene extends Phaser.Scene {
         this.squares.set(`${String(row)}-${String(col)}`, square);
       }
     }
+
+    this.drawWalls();
+  }
+
+  private drawWalls(): void {
+    this.wallGraphics?.destroy();
+    const graphics = this.add.graphics();
+    const lineWidth = Math.max(3, Math.round(this.cellSize * 0.12));
+    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
+
+    for (const segment of getWallSegments(this.map)) {
+      const line = wallSegmentToLine(
+        segment,
+        this.boardOffsetX,
+        this.boardOffsetY,
+        this.cellSize
+      );
+      graphics.lineBetween(line.x1, line.y1, line.x2, line.y2);
+    }
+
+    this.wallGraphics = graphics;
   }
 
   private renderButtons(centerX: number, centerY: number): void {
@@ -177,4 +203,23 @@ function rectFromBounds(
     width: bounds.width,
     height: bounds.height,
   };
+}
+
+function wallSegmentToLine(
+  segment: WallSegment,
+  boardOffsetX: number,
+  boardOffsetY: number,
+  cellSize: number
+): { x1: number; y1: number; x2: number; y2: number } {
+  if (segment.x1 === segment.x2) {
+    const rowBoundary = Math.max(segment.y1, segment.y2);
+    const y = boardOffsetY + rowBoundary * cellSize;
+    const xStart = boardOffsetX + segment.x1 * cellSize;
+    return { x1: xStart, y1: y, x2: xStart + cellSize, y2: y };
+  }
+
+  const colBoundary = Math.max(segment.x1, segment.x2);
+  const x = boardOffsetX + colBoundary * cellSize;
+  const yStart = boardOffsetY + segment.y1 * cellSize;
+  return { x1: x, y1: yStart, x2: x, y2: yStart + cellSize };
 }

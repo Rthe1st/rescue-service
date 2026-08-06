@@ -1,9 +1,14 @@
-export type Tile = "floor" | "wall";
-
+// Every (x, y) in [0, width) x [0, height) is a floor tile. Walls are a
+// separate, zero-width layer: each entry in `walls` blocks movement between
+// two orthogonally-adjacent tiles, or between a border tile and the outside
+// of the grid (using the coordinate one step beyond the border, e.g. (x, -1)
+// for the top edge of (x, 0)). This keeps walls as thin partitions between
+// tiles instead of tiles of their own, so rooms read as rooms rather than
+// tunnels through solid rock.
 export interface GameMap {
   width: number;
   height: number;
-  tiles: Tile[][];
+  walls: Set<string>;
 }
 
 export interface Room {
@@ -13,8 +18,15 @@ export interface Room {
   height: number;
 }
 
+export interface WallSegment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 export interface GenerateMapOptions {
-  /** Number of border wall tiles turned into doors. Clamped to 1-10, defaults to 2. */
+  /** Number of border wall segments turned into doors. Clamped to 1-10, defaults to 2. */
   doorCount?: number;
   /** Source of randomness, injectable for deterministic tests. Defaults to Math.random. */
   random?: () => number;
@@ -38,6 +50,11 @@ const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [0, -1],
 ];
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 export function generateMap(
   width: number,
   height: number,
@@ -54,59 +71,83 @@ export function generateMap(
     MAX_DOOR_COUNT
   );
 
-  const tiles = createWalledGrid(width, height);
-  const rooms = placeRooms(tiles, width, height, random);
-  placeDoors(tiles, width, height, doorCount, random);
+  const map = createBlankMap(width, height);
+  const rooms = placeRooms(map, random);
+  const doors = placeDoors(map, doorCount, random);
 
-  connectRooms(tiles, width, height, rooms);
+  connectRooms(map, rooms, doors);
 
-  return { width, height, tiles };
+  return map;
 }
 
-export function getTile(map: GameMap, x: number, y: number): Tile {
-  const row = map.tiles[y];
-  const tile = row?.[x];
-  if (tile === undefined) {
-    throw new Error(`Coordinate (${String(x)}, ${String(y)}) is outside the map`);
+/** A map with every tile isolated: every interior and border edge starts walled. */
+export function createBlankMap(width: number, height: number): GameMap {
+  const walls = new Set<string>();
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (x + 1 < width) walls.add(wallKey(x, y, x + 1, y));
+      if (y + 1 < height) walls.add(wallKey(x, y, x, y + 1));
+    }
+    walls.add(wallKey(0, y, -1, y));
+    walls.add(wallKey(width - 1, y, width, y));
   }
-  return tile;
+  for (let x = 0; x < width; x++) {
+    walls.add(wallKey(x, 0, x, -1));
+    walls.add(wallKey(x, height - 1, x, height));
+  }
+
+  return { width, height, walls };
 }
 
-function createWalledGrid(width: number, height: number): Tile[][] {
-  return Array.from({ length: height }, () =>
-    Array.from({ length: width }, (): Tile => "wall")
-  );
+function wallKey(x1: number, y1: number, x2: number, y2: number): string {
+  const ordered =
+    x1 < x2 || (x1 === x2 && y1 <= y2) ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
+  return `${String(ordered[0])},${String(ordered[1])}|${String(ordered[2])},${String(ordered[3])}`;
+}
+
+export function hasWall(map: GameMap, x1: number, y1: number, x2: number, y2: number): boolean {
+  return map.walls.has(wallKey(x1, y1, x2, y2));
+}
+
+export function isInBounds(map: GameMap, x: number, y: number): boolean {
+  return x >= 0 && x < map.width && y >= 0 && y < map.height;
+}
+
+/** Whether a player/flame can move directly between two orthogonally-adjacent tiles. */
+export function canPass(map: GameMap, x1: number, y1: number, x2: number, y2: number): boolean {
+  return isInBounds(map, x1, y1) && isInBounds(map, x2, y2) && !hasWall(map, x1, y1, x2, y2);
+}
+
+export function getWallSegments(map: GameMap): WallSegment[] {
+  const segments: WallSegment[] = [];
+  for (const key of map.walls) {
+    const [a, b] = key.split("|");
+    if (!a || !b) continue;
+    const [x1, y1] = a.split(",").map(Number);
+    const [x2, y2] = b.split(",").map(Number);
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) continue;
+    segments.push({ x1, y1, x2, y2 });
+  }
+  return segments;
 }
 
 // Randomly places non-overlapping rooms (2x1 up to 4x4, either orientation)
-// into the interior until no more attempts yield a valid spot. Each attempt
-// tries a random size and position rather than tiling a fixed grid, since
-// room sizes now vary.
-// Exported so tests can inspect room sizes/positions directly, before
-// connectRooms carves corridors that make rooms indistinguishable from
-// doors and hallways in the final tile grid.
-export function placeRooms(
-  tiles: Tile[][],
-  width: number,
-  height: number,
-  random: () => number
-): Room[] {
+// anywhere in the map, including flush against the border, until no more
+// attempts yield a valid spot. Each attempt tries a random size and position
+// rather than tiling a fixed grid, since room sizes vary. Opens every wall
+// between tiles inside the room so it reads as a single open space.
+// Exported so tests can inspect room sizes/positions directly.
+export function placeRooms(map: GameMap, random: () => number): Room[] {
   const rooms: Room[] = [];
-  const interiorWidth = width - 2;
-  const interiorHeight = height - 2;
-  if (interiorWidth < 1 || interiorHeight < 1) return rooms;
-
-  const attempts = Math.max(
-    50,
-    interiorWidth * interiorHeight * ROOM_PLACEMENT_ATTEMPTS_PER_CELL
-  );
+  const attempts = Math.max(50, map.width * map.height * ROOM_PLACEMENT_ATTEMPTS_PER_CELL);
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const room = randomRoom(width, height, random);
+    const room = randomRoom(map.width, map.height, random);
     if (!room) continue;
     if (roomOverlapsAny(room, rooms)) continue;
 
-    fillRoom(tiles, room);
+    openRoomInterior(map, room);
     rooms.push(room);
   }
 
@@ -122,12 +163,12 @@ function randomRoom(
   const roomHeight = randomRoomSide(random);
   if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
 
-  const maxLeft = mapWidth - 1 - roomWidth;
-  const maxTop = mapHeight - 1 - roomHeight;
-  if (maxLeft < 1 || maxTop < 1) return undefined;
+  const maxLeft = mapWidth - roomWidth;
+  const maxTop = mapHeight - roomHeight;
+  if (maxLeft < 0 || maxTop < 0) return undefined;
 
-  const left = 1 + Math.floor(random() * maxLeft);
-  const top = 1 + Math.floor(random() * maxTop);
+  const left = Math.floor(random() * (maxLeft + 1));
+  const top = Math.floor(random() * (maxTop + 1));
 
   return { left, top, width: roomWidth, height: roomHeight };
 }
@@ -136,65 +177,58 @@ function randomRoomSide(random: () => number): number {
   return MIN_ROOM_SIDE + Math.floor(random() * (MAX_ROOM_SIDE - MIN_ROOM_SIDE + 1));
 }
 
-// Rejects the candidate if it (inflated by a 1-tile buffer on every side)
-// overlaps any already-placed room, guaranteeing at least one wall tile of
-// separation between any two rooms.
 function roomOverlapsAny(candidate: Room, rooms: Room[]): boolean {
-  const left = candidate.left - 1;
-  const top = candidate.top - 1;
-  const right = candidate.left + candidate.width + 1;
-  const bottom = candidate.top + candidate.height + 1;
+  const right = candidate.left + candidate.width;
+  const bottom = candidate.top + candidate.height;
 
   for (const room of rooms) {
     const roomRight = room.left + room.width;
     const roomBottom = room.top + room.height;
-    const overlaps = left < roomRight && right > room.left && top < roomBottom && bottom > room.top;
+    const overlaps =
+      candidate.left < roomRight &&
+      right > room.left &&
+      candidate.top < roomBottom &&
+      bottom > room.top;
     if (overlaps) return true;
   }
   return false;
 }
 
-function fillRoom(tiles: Tile[][], room: Room): void {
+function openRoomInterior(map: GameMap, room: Room): void {
   for (let y = room.top; y < room.top + room.height; y++) {
-    const row = tiles[y];
-    if (!row) continue;
     for (let x = room.left; x < room.left + room.width; x++) {
-      row[x] = "floor";
+      if (x + 1 < room.left + room.width) map.walls.delete(wallKey(x, y, x + 1, y));
+      if (y + 1 < room.top + room.height) map.walls.delete(wallKey(x, y, x, y + 1));
     }
   }
 }
 
-interface Point {
-  x: number;
-  y: number;
-}
-
-function placeDoors(
-  tiles: Tile[][],
-  width: number,
-  height: number,
-  doorCount: number,
-  random: () => number
-): Point[] {
+function placeDoors(map: GameMap, doorCount: number, random: () => number): Point[] {
   const candidates: Point[] = [];
-  for (let x = 1; x < width - 1; x++) {
+  for (let x = 1; x < map.width - 1; x++) {
     candidates.push({ x, y: 0 });
-    candidates.push({ x, y: height - 1 });
+    candidates.push({ x, y: map.height - 1 });
   }
-  for (let y = 1; y < height - 1; y++) {
+  for (let y = 1; y < map.height - 1; y++) {
     candidates.push({ x: 0, y });
-    candidates.push({ x: width - 1, y });
+    candidates.push({ x: map.width - 1, y });
   }
 
   shuffle(candidates, random);
 
   const doors = candidates.slice(0, Math.min(doorCount, candidates.length));
   for (const door of doors) {
-    const row = tiles[door.y];
-    if (row) row[door.x] = "floor";
+    map.walls.delete(borderWallKey(door.x, door.y, map.width, map.height));
   }
 
   return doors;
+}
+
+function borderWallKey(x: number, y: number, width: number, height: number): string {
+  if (y === 0) return wallKey(x, 0, x, -1);
+  if (y === height - 1) return wallKey(x, height - 1, x, height);
+  if (x === 0) return wallKey(0, y, -1, y);
+  return wallKey(width - 1, y, width, y);
 }
 
 function shuffle(items: Point[], random: () => number): void {
@@ -208,29 +242,37 @@ function shuffle(items: Point[], random: () => number): void {
   }
 }
 
-// Merges every disconnected floor region (each room, each door) into a
-// single connected component, so any door can reach every room by walking
-// through floor tiles only — not just the union of what each door touches.
-// Gaps between regions can be more than one wall tile thick (e.g. leftover
-// margin when the grid doesn't evenly divide into room-sized bands), so each
-// merge tunnels the shortest wall-carving path to the nearest other region
-// rather than only carving walls directly touching the main region.
-function connectRooms(
-  tiles: Tile[][],
-  width: number,
-  height: number,
-  rooms: Room[]
-): void {
-  if (rooms.length === 0) return;
+// Merges every disconnected "significant" region (each room, each door tile)
+// into a single connected component, so any door can reach every room by
+// walking through opened edges only. Tiles that belong to neither a room nor
+// a door are just carve-path substrate: they stay walled off on every side
+// unless a shortest path happens to run through them, exactly like the
+// non-room tiles in the old wall-tile representation.
+function connectRooms(map: GameMap, rooms: Room[], doors: Point[]): void {
+  const significant = new Set<string>();
+  for (const room of rooms) {
+    for (let y = room.top; y < room.top + room.height; y++) {
+      for (let x = room.left; x < room.left + room.width; x++) {
+        significant.add(pointKey(x, y));
+      }
+    }
+  }
+  for (const door of doors) significant.add(pointKey(door.x, door.y));
 
-  const maxMerges = width * height;
+  if (significant.size === 0) return;
+
+  const maxMerges = map.width * map.height;
   for (let merges = 0; merges < maxMerges; merges++) {
-    const labels = labelFloorComponents(tiles, width, height);
+    const labels = labelSignificantComponents(map, significant);
     if (labels.componentCount <= 1) return;
 
-    const merged = carveShortestPathToOtherComponent(tiles, width, height, labels.grid, 0);
+    const merged = carveShortestPathToOtherComponent(map, labels.grid, 0);
     if (!merged) return;
   }
+}
+
+function pointKey(x: number, y: number): string {
+  return `${String(x)},${String(y)}`;
 }
 
 interface ComponentLabels {
@@ -238,39 +280,45 @@ interface ComponentLabels {
   componentCount: number;
 }
 
-function labelFloorComponents(
-  tiles: Tile[][],
-  width: number,
-  height: number
-): ComponentLabels {
-  const grid = Array.from({ length: height }, () =>
-    Array.from({ length: width }, () => -1)
+// A carved corridor between two rooms opens edges through tiles that aren't
+// themselves significant (not part of any room or door), so connectivity
+// must be traced through *any* open-edge-connected tile - only the labeling
+// of which tiles get a component number is restricted to significant ones.
+function labelSignificantComponents(map: GameMap, significant: Set<string>): ComponentLabels {
+  const grid = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => -1)
+  );
+  const visited = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => false)
   );
   let componentCount = 0;
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (tiles[y]?.[x] !== "floor" || grid[y]?.[x] !== -1) continue;
-      floodFillComponent(tiles, width, height, grid, x, y, componentCount);
-      componentCount++;
-    }
+  for (const key of significant) {
+    const point = parsePointKey(key);
+    if (visited[point.y]?.[point.x]) continue;
+    floodFillSignificant(map, significant, visited, grid, point.x, point.y, componentCount);
+    componentCount++;
   }
 
   return { grid, componentCount };
 }
 
-function floodFillComponent(
-  tiles: Tile[][],
-  width: number,
-  height: number,
+function parsePointKey(key: string): Point {
+  const [xPart, yPart] = key.split(",");
+  return { x: Number(xPart), y: Number(yPart) };
+}
+
+function floodFillSignificant(
+  map: GameMap,
+  significant: Set<string>,
+  visited: boolean[][],
   grid: number[][],
   startX: number,
   startY: number,
   label: number
 ): void {
   const queue: Point[] = [{ x: startX, y: startY }];
-  const startRow = grid[startY];
-  if (startRow) startRow[startX] = label;
+  markVisited(visited, grid, significant, startX, startY, label);
 
   let head = 0;
   while (head < queue.length) {
@@ -281,60 +329,55 @@ function floodFillComponent(
     for (const [dx, dy] of ADJACENT_OFFSETS) {
       const x = point.x + dx;
       const y = point.y + dy;
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      if (!isInBounds(map, x, y)) continue;
 
-      const gridRow = grid[y];
-      const tileRow = tiles[y];
-      if (!gridRow || !tileRow) continue;
-      if (gridRow[x] !== -1 || tileRow[x] !== "floor") continue;
+      const visitedRow = visited[y];
+      if (!visitedRow || visitedRow[x]) continue;
+      if (hasWall(map, point.x, point.y, x, y)) continue;
 
-      gridRow[x] = label;
+      markVisited(visited, grid, significant, x, y, label);
       queue.push({ x, y });
     }
   }
 }
 
-// Interior floor tiles cost nothing to walk through; interior walls cost one
-// carve; the border ring is never carvable (undefined) so the door count
-// invariant holds, except border tiles that are already a door (floor).
-function stepCost(
-  tiles: Tile[][],
-  width: number,
-  height: number,
+function markVisited(
+  visited: boolean[][],
+  grid: number[][],
+  significant: Set<string>,
   x: number,
-  y: number
-): number | undefined {
-  const tile = tiles[y]?.[x];
-  if (tile === "floor") return 0;
-  if (tile !== "wall") return undefined;
-
-  const isBorder = x === 0 || y === 0 || x === width - 1 || y === height - 1;
-  return isBorder ? undefined : 1;
+  y: number,
+  label: number
+): void {
+  const visitedRow = visited[y];
+  if (visitedRow) visitedRow[x] = true;
+  if (!significant.has(pointKey(x, y))) return;
+  const gridRow = grid[y];
+  if (gridRow) gridRow[x] = label;
 }
 
 // 0-1 BFS (Dijkstra with only edge weights 0/1, via a double-ended queue)
-// from every cell of `mainLabel` to the nearest cell of any other component,
-// then carves every wall tile on that shortest path to floor. Returns false
-// only if no other component exists to merge with.
+// from every tile of `mainLabel` to the nearest tile of any other
+// significant component, then opens every walled edge on that shortest
+// path. May pass through non-significant tiles along the way, carving a
+// corridor through them. Returns false only if no other component exists.
 function carveShortestPathToOtherComponent(
-  tiles: Tile[][],
-  width: number,
-  height: number,
+  map: GameMap,
   labels: number[][],
   mainLabel: number
 ): boolean {
-  const dist: number[][] = Array.from({ length: height }, () =>
-    Array.from({ length: width }, () => Infinity)
+  const dist: number[][] = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => Infinity)
   );
-  const parent: Array<Array<Point | null>> = Array.from({ length: height }, () =>
-    Array.from({ length: width }, () => null)
+  const parent: Array<Array<Point | null>> = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => null)
   );
   const deque: Point[] = [];
 
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < map.height; y++) {
     const labelRow = labels[y];
     if (!labelRow) continue;
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < map.width; x++) {
       if (labelRow[x] !== mainLabel) continue;
       const distRow = dist[y];
       if (distRow) distRow[x] = 0;
@@ -361,11 +404,9 @@ function carveShortestPathToOtherComponent(
     for (const [dx, dy] of ADJACENT_OFFSETS) {
       const nx = x + dx;
       const ny = y + dy;
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+      if (!isInBounds(map, nx, ny)) continue;
 
-      const cost = stepCost(tiles, width, height, nx, ny);
-      if (cost === undefined) continue;
-
+      const cost = hasWall(map, x, y, nx, ny) ? 1 : 0;
       const newDist = currentDist + cost;
       const distRow = dist[ny];
       if (!distRow || newDist >= (distRow[nx] ?? Infinity)) continue;
@@ -388,9 +429,10 @@ function carveShortestPathToOtherComponent(
 
   let cursor: Point | null = target;
   while (cursor) {
-    const row = tiles[cursor.y];
-    if (row && row[cursor.x] === "wall") row[cursor.x] = "floor";
-    cursor = parent[cursor.y]?.[cursor.x] ?? null;
+    const point: Point = cursor;
+    const parentPoint: Point | null = parent[point.y]?.[point.x] ?? null;
+    if (parentPoint) map.walls.delete(wallKey(point.x, point.y, parentPoint.x, parentPoint.y));
+    cursor = parentPoint;
   }
 
   return true;
