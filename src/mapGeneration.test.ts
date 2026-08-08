@@ -5,6 +5,7 @@ import {
   MIN_DOOR_COUNT,
   canPass,
   createBlankMap,
+  createOpenMap,
   generateMap,
   hasWall,
   isInBounds,
@@ -284,8 +285,8 @@ describe("placeRooms", () => {
     }
   });
 
-  it("opens every internal wall inside a room, so any two tiles in a room can reach each other", () => {
-    const map = createBlankMap(WIDTH, HEIGHT);
+  it("keeps every internal wall inside a room open, so any two tiles in a room can reach each other", () => {
+    const map = createOpenMap(WIDTH, HEIGHT);
     const rooms = placeRooms(map, mulberry32(4242));
 
     for (const room of rooms) {
@@ -296,6 +297,36 @@ describe("placeRooms", () => {
           }
           if (y + 1 < room.top + room.height) {
             expect(canPass(map, x, y, x, y + 1)).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("encloses each room in walls along its perimeter as it's placed", () => {
+    const map = createOpenMap(WIDTH, HEIGHT);
+    const rooms = placeRooms(map, mulberry32(777));
+    expect(rooms.length).toBeGreaterThan(0);
+
+    for (const room of rooms) {
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            const insideSameRoom =
+              nx >= room.left &&
+              nx < room.left + room.width &&
+              ny >= room.top &&
+              ny < room.top + room.height;
+            if (insideSameRoom) continue;
+            if (!isInBounds(map, nx, ny)) continue;
+            expect(canPass(map, x, y, nx, ny)).toBe(false);
           }
         }
       }
