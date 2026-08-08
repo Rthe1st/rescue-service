@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { gameSettings } from "./gameSettings";
 import {
-  createBlankMap,
+  createOpenMap,
   generateMapSteps,
   getWallSegments,
   type GameMap,
@@ -44,7 +44,7 @@ export class MapPreviewScene extends Phaser.Scene {
 
   create(): void {
     this.gridSize = gameSettings.gridSize;
-    this.map = createBlankMap(this.gridSize, this.gridSize);
+    this.map = createOpenMap(this.gridSize, this.gridSize);
 
     this.titleText = this.add
       .text(0, 30, "Preview map", {

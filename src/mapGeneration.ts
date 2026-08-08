@@ -91,8 +91,8 @@ export function* generateMapSteps(
     MAX_DOOR_COUNT
   );
 
-  const map = createBlankMap(width, height);
-  yield { map: cloneMap(map), description: `Blank ${String(width)}x${String(height)} map` };
+  const map = createOpenMap(width, height);
+  yield { map: cloneMap(map), description: `Open ${String(width)}x${String(height)} map` };
 
   const rooms = yield* placeRoomsSteps(map, random);
   const doors = yield* placeDoorsSteps(map, doorCount, random);
@@ -127,6 +127,26 @@ export function createBlankMap(width: number, height: number): GameMap {
   for (let x = 0; x < width; x++) {
     walls.add(wallKey(x, 0, x, -1));
     walls.add(wallKey(x, height - 1, x, height));
+  }
+
+  return { width, height, walls };
+}
+
+/**
+ * A map with every interior edge open (freely walkable) and only the border walled - the
+ * starting point for generation. Walls are built up as rooms are placed (enclosing each one)
+ * rather than carved out of a fully-walled grid, so the interior starts as open floor.
+ */
+export function createOpenMap(width: number, height: number): GameMap {
+  const walls = new Set<string>();
+
+  for (let x = 0; x < width; x++) {
+    walls.add(wallKey(x, 0, x, -1));
+    walls.add(wallKey(x, height - 1, x, height));
+  }
+  for (let y = 0; y < height; y++) {
+    walls.add(wallKey(0, y, -1, y));
+    walls.add(wallKey(width - 1, y, width, y));
   }
 
   return { width, height, walls };
@@ -167,8 +187,10 @@ export function getWallSegments(map: GameMap): WallSegment[] {
 // Randomly places non-overlapping rooms (2x1 up to 4x4, either orientation)
 // anywhere in the map, including flush against the border, until no more
 // attempts yield a valid spot. Each attempt tries a random size and position
-// rather than tiling a fixed grid, since room sizes vary. Opens every wall
-// between tiles inside the room so it reads as a single open space.
+// rather than tiling a fixed grid, since room sizes vary. Encloses each room
+// in walls along its perimeter (against whatever tile - open floor or another
+// room - is on the other side), sealing it off from the rest of the map;
+// `connectRooms` later carves a doorway through the cheapest wall to reconnect it.
 // Every room after the first must be placed directly adjacent (edge-touching) to an
 // already-placed room, so the floor plan grows outward as one connected building rather
 // than a scatter of disconnected rooms. Rooms may be positioned so they extend past the
@@ -193,7 +215,7 @@ function* placeRoomsSteps(
     if (!room) continue;
     if (roomOverlapsAny(room, rooms)) continue;
 
-    openRoomInterior(map, room);
+    encloseRoom(map, room);
     rooms.push(room);
     yield {
       map: cloneMap(map),
@@ -290,13 +312,31 @@ function roomOverlapsAny(candidate: Room, rooms: Room[]): boolean {
   return false;
 }
 
-function openRoomInterior(map: GameMap, room: Room): void {
+// Adds a wall between every room tile and each orthogonally-adjacent tile that falls
+// outside the room's footprint, sealing the room off from the rest of the map. Tile pairs
+// that are both inside the room are left untouched (already open, since the map starts with
+// every interior edge open), so the room's own interior stays fully walkable.
+function encloseRoom(map: GameMap, room: Room): void {
   for (let y = room.top; y < room.top + room.height; y++) {
     for (let x = room.left; x < room.left + room.width; x++) {
-      if (x + 1 < room.left + room.width) map.walls.delete(wallKey(x, y, x + 1, y));
-      if (y + 1 < room.top + room.height) map.walls.delete(wallKey(x, y, x, y + 1));
+      for (const [dx, dy] of ADJACENT_OFFSETS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (isInsideRoom(room, nx, ny)) continue;
+        if (!isInBounds(map, nx, ny)) continue;
+        map.walls.add(wallKey(x, y, nx, ny));
+      }
     }
   }
+}
+
+function isInsideRoom(room: Room, x: number, y: number): boolean {
+  return (
+    x >= room.left &&
+    x < room.left + room.width &&
+    y >= room.top &&
+    y < room.top + room.height
+  );
 }
 
 function* placeDoorsSteps(
@@ -348,10 +388,12 @@ function shuffle(items: Point[], random: () => number): void {
 
 // Merges every disconnected "significant" region (each room, each door tile)
 // into a single connected component, so any door can reach every room by
-// walking through opened edges only. Tiles that belong to neither a room nor
-// a door are just carve-path substrate: they stay walled off on every side
-// unless a shortest path happens to run through them, exactly like the
-// non-room tiles in the old wall-tile representation.
+// walking through opened edges only. Every enclosed room starts as its own
+// isolated component (sealed off by `encloseRoom`); the open floor between
+// rooms is already one connected mass since interior edges start open, so
+// this carves exactly one entryway through the cheapest wall of each room
+// (usually a single edge, since rooms are placed touching existing floor)
+// rather than needing to tunnel long corridors through solid rock.
 function* connectRoomsSteps(
   map: GameMap,
   rooms: Room[],
