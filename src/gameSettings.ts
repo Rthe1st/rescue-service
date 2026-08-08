@@ -7,6 +7,7 @@ export const DEFAULT_BUTTON_SPACING = 50;
 export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
 export const DEFAULT_EDIT_MAPS_BEFORE_PLAY = false;
+export const DEFAULT_GENERATION_STEP_DELAY_MS = 20;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -18,6 +19,7 @@ export interface GameParams {
   firefightingDurationSeconds: number;
   spreadDirections: number;
   editMapsBeforePlay: boolean;
+  generationStepDelayMs: number;
 }
 
 export const gameSettings: GameParams = {
@@ -28,6 +30,7 @@ export const gameSettings: GameParams = {
   firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
+  generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -40,7 +43,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["buttonSpacing"] === "number" &&
     typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number" &&
-    typeof candidate["editMapsBeforePlay"] === "boolean"
+    typeof candidate["editMapsBeforePlay"] === "boolean" &&
+    typeof candidate["generationStepDelayMs"] === "number"
   );
 }
 
@@ -98,6 +102,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "editMapsBeforePlay")
     .name("Edit maps before play")
     .onChange(() => onChange?.());
+  const generationStepDelayController = gui
+    .add(gameSettings, "generationStepDelayMs", 1, 300, 1)
+    .name("Map generation step delay (ms)")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -113,6 +121,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
+    gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -120,6 +129,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
     editMapsBeforePlayController.updateDisplay();
+    generationStepDelayController.updateDisplay();
 
     onChange?.();
   };
