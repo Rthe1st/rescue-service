@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { gameSettings } from "./gameSettings";
 import {
-  generateMap,
+  createBlankMap,
+  generateMapSteps,
   getWallSegments,
   type GameMap,
   type WallSegment,
@@ -21,6 +22,7 @@ const BUTTON_GAP = 20;
 
 const FLOOR_COLOR = 0xffffff;
 const WALL_COLOR = 0x212121;
+const GENERATION_STEP_DELAY_MS = 20;
 
 export class MapPreviewScene extends Phaser.Scene {
   private map!: GameMap;
@@ -33,6 +35,8 @@ export class MapPreviewScene extends Phaser.Scene {
   private titleText: Phaser.GameObjects.Text | undefined;
   private startButton: Phaser.GameObjects.Text | undefined;
   private regenerateButton: Phaser.GameObjects.Text | undefined;
+  private generationTimer: Phaser.Time.TimerEvent | undefined;
+  private generating = false;
 
   constructor() {
     super({ key: "MapPreviewScene" });
@@ -40,7 +44,7 @@ export class MapPreviewScene extends Phaser.Scene {
 
   create(): void {
     this.gridSize = gameSettings.gridSize;
-    this.map = generateMap(this.gridSize, this.gridSize);
+    this.map = createBlankMap(this.gridSize, this.gridSize);
 
     this.titleText = this.add
       .text(0, 30, "Preview map", {
@@ -51,6 +55,7 @@ export class MapPreviewScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.layout();
+    this.startGeneration();
 
     const handleResize = (): void => {
       this.layout();
@@ -58,7 +63,48 @@ export class MapPreviewScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, handleResize);
+      this.generationTimer?.remove();
     });
+  }
+
+  // Steps through `generateMapSteps` on a timer, rendering the map after every room
+  // placed, door opened, and corridor wall carved, so map generation is visible as it
+  // happens rather than appearing instantly.
+  private startGeneration(): void {
+    this.generationTimer?.remove();
+
+    const steps = generateMapSteps(this.gridSize, this.gridSize);
+    this.generating = true;
+    this.renderButtons(...this.buttonsCenter());
+
+    this.generationTimer = this.time.addEvent({
+      delay: GENERATION_STEP_DELAY_MS,
+      loop: true,
+      callback: () => {
+        // Phaser's clock can fire a repeating event's callback more than once per
+        // frame to catch up after a stall, which would call `.next()` again on an
+        // already-exhausted generator (returning `{done: true, value: undefined}`)
+        // even though `remove()` was already requested below. Ignore those.
+        if (!this.generating) return;
+
+        const result = steps.next();
+        this.map = result.done ? result.value : result.value.map;
+        this.renderBoard();
+
+        if (result.done) {
+          this.generating = false;
+          this.generationTimer?.remove();
+          this.generationTimer = undefined;
+          this.renderButtons(...this.buttonsCenter());
+        }
+      },
+    });
+  }
+
+  private buttonsCenter(): [number, number] {
+    const { width } = this.scale;
+    const boardSize = this.cellSize * this.gridSize;
+    return [width / 2, this.boardOffsetY + boardSize + BUTTONS_AREA_HEIGHT / 2];
   }
 
   private layout(): void {
@@ -129,6 +175,8 @@ export class MapPreviewScene extends Phaser.Scene {
     this.startButton?.destroy();
     this.regenerateButton?.destroy();
 
+    const enabled = !this.generating;
+
     const regenerateButton = this.add
       .text(0, centerY, "Regenerate", {
         fontSize: "22px",
@@ -137,17 +185,19 @@ export class MapPreviewScene extends Phaser.Scene {
         padding: { x: 20, y: 10 },
       })
       .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    regenerateButton.on("pointerover", () =>
-      regenerateButton.setStyle({ backgroundColor: "#1976d2" })
-    );
-    regenerateButton.on("pointerout", () =>
-      regenerateButton.setStyle({ backgroundColor: "#1565c0" })
-    );
-    regenerateButton.on("pointerdown", () => {
-      this.map = generateMap(this.gridSize, this.gridSize);
-      this.renderBoard();
-    });
+      .setAlpha(enabled ? 1 : 0.4);
+    if (enabled) {
+      regenerateButton.setInteractive({ useHandCursor: true });
+      regenerateButton.on("pointerover", () =>
+        regenerateButton.setStyle({ backgroundColor: "#1976d2" })
+      );
+      regenerateButton.on("pointerout", () =>
+        regenerateButton.setStyle({ backgroundColor: "#1565c0" })
+      );
+      regenerateButton.on("pointerdown", () => {
+        this.startGeneration();
+      });
+    }
 
     const startButton = this.add
       .text(0, centerY, "Start", {
@@ -157,16 +207,17 @@ export class MapPreviewScene extends Phaser.Scene {
         padding: { x: 20, y: 10 },
       })
       .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    startButton.on("pointerover", () =>
-      startButton.setStyle({ backgroundColor: "#388e3c" })
-    );
-    startButton.on("pointerout", () =>
-      startButton.setStyle({ backgroundColor: "#2e7d32" })
-    );
-    startButton.on("pointerdown", () =>
-      this.scene.start("GameScene", { map: this.map })
-    );
+      .setAlpha(enabled ? 1 : 0.4);
+    if (enabled) {
+      startButton.setInteractive({ useHandCursor: true });
+      startButton.on("pointerover", () =>
+        startButton.setStyle({ backgroundColor: "#388e3c" })
+      );
+      startButton.on("pointerout", () =>
+        startButton.setStyle({ backgroundColor: "#2e7d32" })
+      );
+      startButton.on("pointerdown", () => this.scene.start("GameScene", { map: this.map }));
+    }
 
     const totalWidth = regenerateButton.width + BUTTON_GAP + startButton.width;
     const left = centerX - totalWidth / 2;

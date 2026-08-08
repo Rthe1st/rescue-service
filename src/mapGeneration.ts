@@ -32,6 +32,13 @@ export interface GenerateMapOptions {
   random?: () => number;
 }
 
+/** A snapshot of the map after one meaningful generation step (a room placed, a door or
+ * corridor wall opened), for callers that want to visualize generation as it happens. */
+export interface GenerationStep {
+  map: GameMap;
+  description: string;
+}
+
 export const DEFAULT_DOOR_COUNT = 2;
 export const MIN_DOOR_COUNT = 1;
 export const MAX_DOOR_COUNT = 10;
@@ -60,6 +67,19 @@ export function generateMap(
   height: number,
   options: GenerateMapOptions = {}
 ): GameMap {
+  return drain(generateMapSteps(width, height, options));
+}
+
+/**
+ * Same generation as `generateMap`, but yields a `GenerationStep` after every room placed,
+ * door opened, and corridor wall carved, so a caller can render the map as it's built up
+ * instead of only seeing the finished result. The generator's return value is the final map.
+ */
+export function* generateMapSteps(
+  width: number,
+  height: number,
+  options: GenerateMapOptions = {}
+): Generator<GenerationStep, GameMap, void> {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
     throw new Error("Map width and height must be positive integers");
   }
@@ -72,12 +92,24 @@ export function generateMap(
   );
 
   const map = createBlankMap(width, height);
-  const rooms = placeRooms(map, random);
-  const doors = placeDoors(map, doorCount, random);
+  yield { map: cloneMap(map), description: `Blank ${String(width)}x${String(height)} map` };
 
-  connectRooms(map, rooms, doors);
+  const rooms = yield* placeRoomsSteps(map, random);
+  const doors = yield* placeDoorsSteps(map, doorCount, random);
+  yield* connectRoomsSteps(map, rooms, doors);
 
   return map;
+}
+
+/** Runs a generator to completion, ignoring yielded steps, and returns its final value. */
+function drain<T>(generator: Generator<unknown, T, void>): T {
+  let result = generator.next();
+  while (!result.done) result = generator.next();
+  return result.value;
+}
+
+function cloneMap(map: GameMap): GameMap {
+  return { width: map.width, height: map.height, walls: new Set(map.walls) };
 }
 
 /** A map with every tile isolated: every interior and border edge starts walled. */
@@ -143,6 +175,13 @@ export function getWallSegments(map: GameMap): WallSegment[] {
 // map edge; they're cropped to fit before being placed.
 // Exported so tests can inspect room sizes/positions directly.
 export function placeRooms(map: GameMap, random: () => number): Room[] {
+  return drain(placeRoomsSteps(map, random));
+}
+
+function* placeRoomsSteps(
+  map: GameMap,
+  random: () => number
+): Generator<GenerationStep, Room[], void> {
   const rooms: Room[] = [];
   const attempts = Math.max(50, map.width * map.height * ROOM_PLACEMENT_ATTEMPTS_PER_CELL);
 
@@ -156,6 +195,10 @@ export function placeRooms(map: GameMap, random: () => number): Room[] {
 
     openRoomInterior(map, room);
     rooms.push(room);
+    yield {
+      map: cloneMap(map),
+      description: `Placed room ${String(rooms.length)} (${String(room.width)}x${String(room.height)}) at (${String(room.left)}, ${String(room.top)})`,
+    };
   }
 
   return rooms;
@@ -256,7 +299,11 @@ function openRoomInterior(map: GameMap, room: Room): void {
   }
 }
 
-function placeDoors(map: GameMap, doorCount: number, random: () => number): Point[] {
+function* placeDoorsSteps(
+  map: GameMap,
+  doorCount: number,
+  random: () => number
+): Generator<GenerationStep, Point[], void> {
   const candidates: Point[] = [];
   for (let x = 1; x < map.width - 1; x++) {
     candidates.push({ x, y: 0 });
@@ -272,6 +319,10 @@ function placeDoors(map: GameMap, doorCount: number, random: () => number): Poin
   const doors = candidates.slice(0, Math.min(doorCount, candidates.length));
   for (const door of doors) {
     map.walls.delete(borderWallKey(door.x, door.y, map.width, map.height));
+    yield {
+      map: cloneMap(map),
+      description: `Opened door at (${String(door.x)}, ${String(door.y)})`,
+    };
   }
 
   return doors;
@@ -301,7 +352,11 @@ function shuffle(items: Point[], random: () => number): void {
 // a door are just carve-path substrate: they stay walled off on every side
 // unless a shortest path happens to run through them, exactly like the
 // non-room tiles in the old wall-tile representation.
-function connectRooms(map: GameMap, rooms: Room[], doors: Point[]): void {
+function* connectRoomsSteps(
+  map: GameMap,
+  rooms: Room[],
+  doors: Point[]
+): Generator<GenerationStep, void, void> {
   const significant = new Set<string>();
   for (const room of rooms) {
     for (let y = room.top; y < room.top + room.height; y++) {
@@ -319,7 +374,7 @@ function connectRooms(map: GameMap, rooms: Room[], doors: Point[]): void {
     const labels = labelSignificantComponents(map, significant);
     if (labels.componentCount <= 1) return;
 
-    const merged = carveShortestPathToOtherComponent(map, labels.grid, 0);
+    const merged = yield* carveShortestPathToOtherComponentSteps(map, labels.grid, 0);
     if (!merged) return;
   }
 }
@@ -414,11 +469,11 @@ function markVisited(
 // significant component, then opens every walled edge on that shortest
 // path. May pass through non-significant tiles along the way, carving a
 // corridor through them. Returns false only if no other component exists.
-function carveShortestPathToOtherComponent(
+function* carveShortestPathToOtherComponentSteps(
   map: GameMap,
   labels: number[][],
   mainLabel: number
-): boolean {
+): Generator<GenerationStep, boolean, void> {
   const dist: number[][] = Array.from({ length: map.height }, () =>
     Array.from({ length: map.width }, () => Infinity)
   );
@@ -484,7 +539,13 @@ function carveShortestPathToOtherComponent(
   while (cursor) {
     const point: Point = cursor;
     const parentPoint: Point | null = parent[point.y]?.[point.x] ?? null;
-    if (parentPoint) map.walls.delete(wallKey(point.x, point.y, parentPoint.x, parentPoint.y));
+    if (parentPoint) {
+      map.walls.delete(wallKey(point.x, point.y, parentPoint.x, parentPoint.y));
+      yield {
+        map: cloneMap(map),
+        description: `Opened wall between (${String(point.x)}, ${String(point.y)}) and (${String(parentPoint.x)}, ${String(parentPoint.y)})`,
+      };
+    }
     cursor = parentPoint;
   }
 
