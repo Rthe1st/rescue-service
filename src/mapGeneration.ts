@@ -137,13 +137,20 @@ export function getWallSegments(map: GameMap): WallSegment[] {
 // attempts yield a valid spot. Each attempt tries a random size and position
 // rather than tiling a fixed grid, since room sizes vary. Opens every wall
 // between tiles inside the room so it reads as a single open space.
+// Every room after the first must be placed directly adjacent (edge-touching) to an
+// already-placed room, so the floor plan grows outward as one connected building rather
+// than a scatter of disconnected rooms. Rooms may be positioned so they extend past the
+// map edge; they're cropped to fit before being placed.
 // Exported so tests can inspect room sizes/positions directly.
 export function placeRooms(map: GameMap, random: () => number): Room[] {
   const rooms: Room[] = [];
   const attempts = Math.max(50, map.width * map.height * ROOM_PLACEMENT_ATTEMPTS_PER_CELL);
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const room = randomRoom(map.width, map.height, random);
+    const room =
+      rooms.length === 0
+        ? randomRoom(map.width, map.height, random)
+        : randomAdjacentRoom(map.width, map.height, rooms, random);
     if (!room) continue;
     if (roomOverlapsAny(room, rooms)) continue;
 
@@ -163,14 +170,60 @@ function randomRoom(
   const roomHeight = randomRoomSide(random);
   if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
 
-  const maxLeft = mapWidth - roomWidth;
-  const maxTop = mapHeight - roomHeight;
-  if (maxLeft < 0 || maxTop < 0) return undefined;
+  const left = randomOffMapCoordinate(mapWidth, roomWidth, random);
+  const top = randomOffMapCoordinate(mapHeight, roomHeight, random);
 
-  const left = Math.floor(random() * (maxLeft + 1));
-  const top = Math.floor(random() * (maxTop + 1));
+  return cropToMap({ left, top, width: roomWidth, height: roomHeight }, mapWidth, mapHeight);
+}
 
-  return { left, top, width: roomWidth, height: roomHeight };
+// Picks a room placed directly against a random side of a random already-placed room,
+// with a randomly chosen row/column of overlap along the shared edge so the two rooms are
+// guaranteed to share at least one tile-length of border.
+function randomAdjacentRoom(
+  mapWidth: number,
+  mapHeight: number,
+  rooms: Room[],
+  random: () => number
+): Room | undefined {
+  const base = rooms[Math.floor(random() * rooms.length)];
+  if (!base) return undefined;
+
+  const roomWidth = randomRoomSide(random);
+  const roomHeight = randomRoomSide(random);
+  if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
+
+  let left: number;
+  let top: number;
+  const side = Math.floor(random() * 4);
+  if (side === 0 || side === 1) {
+    left = side === 0 ? base.left + base.width : base.left - roomWidth;
+    const overlapRow = base.top + Math.floor(random() * base.height);
+    top = overlapRow - Math.floor(random() * roomHeight);
+  } else {
+    top = side === 2 ? base.top + base.height : base.top - roomHeight;
+    const overlapCol = base.left + Math.floor(random() * base.width);
+    left = overlapCol - Math.floor(random() * roomWidth);
+  }
+
+  return cropToMap({ left, top, width: roomWidth, height: roomHeight }, mapWidth, mapHeight);
+}
+
+// A coordinate anywhere in [-(size - 1), mapSize - 1], so the room may start partly off
+// either edge of the map.
+function randomOffMapCoordinate(mapSize: number, size: number, random: () => number): number {
+  return Math.floor(random() * (mapSize + size - 1)) - (size - 1);
+}
+
+function cropToMap(rect: Room, mapWidth: number, mapHeight: number): Room | undefined {
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(mapWidth, rect.left + rect.width);
+  const bottom = Math.min(mapHeight, rect.top + rect.height);
+  const width = right - left;
+  const height = bottom - top;
+  if (width < 1 || height < 1) return undefined;
+
+  return { left, top, width, height };
 }
 
 function randomRoomSide(random: () => number): number {

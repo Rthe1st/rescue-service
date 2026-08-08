@@ -10,6 +10,7 @@ import {
   isInBounds,
   placeRooms,
   type GameMap,
+  type Room,
 } from "./mapGeneration";
 
 // Deterministic PRNG so map generation is reproducible across test runs.
@@ -22,6 +23,18 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function roomsTouch(a: Room, b: Room): boolean {
+  const aRight = a.left + a.width;
+  const aBottom = a.top + a.height;
+  const bRight = b.left + b.width;
+  const bBottom = b.top + b.height;
+  const horizontallyTouching =
+    (aRight === b.left || bRight === a.left) && a.top < bBottom && aBottom > b.top;
+  const verticallyTouching =
+    (aBottom === b.top || bBottom === a.top) && a.left < bRight && aRight > b.left;
+  return horizontallyTouching || verticallyTouching;
 }
 
 function findDoorTiles(map: GameMap): Array<[number, number]> {
@@ -106,14 +119,14 @@ describe("generateMap", () => {
     }
   );
 
-  it("produces no rooms on a map too small to fit even the smallest room, so no interior tiles can pass into each other", () => {
-    // A 3x3 map has no room-sized space (smallest room is 2x1/1x2), so no
-    // interior walls get opened at all.
-    const map = generateMap(3, 3, { random: mulberry32(5) });
-    expect(canPass(map, 1, 1, 1, 0)).toBe(false);
-    expect(canPass(map, 1, 1, 1, 2)).toBe(false);
-    expect(canPass(map, 1, 1, 0, 1)).toBe(false);
-    expect(canPass(map, 1, 1, 2, 1)).toBe(false);
+  it("still produces a valid map on a map too small to fit a full-size room, by cropping rooms to fit", () => {
+    // A 3x3 map is smaller than most room draws (up to 4x4), but rooms are now
+    // cropped to fit rather than rejected outright, so generation must not throw.
+    for (let seed = 0; seed < 10; seed++) {
+      const map = generateMap(3, 3, { random: mulberry32(seed + 6000) });
+      expect(map.width).toBe(3);
+      expect(map.height).toBe(3);
+    }
   });
 
   it.each([
@@ -166,7 +179,7 @@ describe("placeRooms", () => {
   const WIDTH = 40;
   const HEIGHT = 40;
 
-  it("places rooms whose sides are each in the 1-4 range, never a degenerate 1x1", () => {
+  it("places rooms whose sides are each in the 1-4 range", () => {
     for (let seed = 0; seed < 10; seed++) {
       const map = createBlankMap(WIDTH, HEIGHT);
       const rooms = placeRooms(map, mulberry32(seed));
@@ -177,7 +190,37 @@ describe("placeRooms", () => {
         expect(room.width).toBeLessThanOrEqual(4);
         expect(room.height).toBeGreaterThanOrEqual(1);
         expect(room.height).toBeLessThanOrEqual(4);
-        expect(room.width === 1 && room.height === 1).toBe(false);
+      }
+    }
+  });
+
+  it("every room after the first touches at least one other placed room", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const map = createBlankMap(WIDTH, HEIGHT);
+      const rooms = placeRooms(map, mulberry32(seed + 4000));
+      expect(rooms.length).toBeGreaterThan(1);
+
+      for (let i = 1; i < rooms.length; i++) {
+        const room = rooms[i];
+        if (!room) continue;
+        const touchesAnother = rooms.some(
+          (other, j) => j !== i && roomsTouch(room, other)
+        );
+        expect(touchesAnother, `room ${String(i)} doesn't touch any other room`).toBe(true);
+      }
+    }
+  });
+
+  it("allows a room's random draw to extend past the map edge, cropped to fit", () => {
+    // A tiny map makes edge-cropping likely on nearly every placement attempt.
+    for (let seed = 0; seed < 20; seed++) {
+      const map = createBlankMap(3, 3);
+      const rooms = placeRooms(map, mulberry32(seed + 5000));
+      for (const room of rooms) {
+        expect(room.left).toBeGreaterThanOrEqual(0);
+        expect(room.top).toBeGreaterThanOrEqual(0);
+        expect(room.left + room.width).toBeLessThanOrEqual(3);
+        expect(room.top + room.height).toBeLessThanOrEqual(3);
       }
     }
   });
