@@ -22,7 +22,6 @@ const BUTTON_GAP = 20;
 
 const FLOOR_COLOR = 0xffffff;
 const WALL_COLOR = 0x212121;
-const GENERATION_STEP_DELAY_MS = 20;
 
 export class MapPreviewScene extends Phaser.Scene {
   private map!: GameMap;
@@ -35,8 +34,10 @@ export class MapPreviewScene extends Phaser.Scene {
   private titleText: Phaser.GameObjects.Text | undefined;
   private startButton: Phaser.GameObjects.Text | undefined;
   private regenerateButton: Phaser.GameObjects.Text | undefined;
+  private pauseButton: Phaser.GameObjects.Text | undefined;
   private generationTimer: Phaser.Time.TimerEvent | undefined;
   private generating = false;
+  private paused = false;
 
   constructor() {
     super({ key: "MapPreviewScene" });
@@ -75,10 +76,11 @@ export class MapPreviewScene extends Phaser.Scene {
 
     const steps = generateMapSteps(this.gridSize, this.gridSize);
     this.generating = true;
+    this.paused = false;
     this.renderButtons(...this.buttonsCenter());
 
     this.generationTimer = this.time.addEvent({
-      delay: GENERATION_STEP_DELAY_MS,
+      delay: gameSettings.generationStepDelayMs,
       loop: true,
       callback: () => {
         // Phaser's clock can fire a repeating event's callback more than once per
@@ -93,12 +95,20 @@ export class MapPreviewScene extends Phaser.Scene {
 
         if (result.done) {
           this.generating = false;
+          this.paused = false;
           this.generationTimer?.remove();
           this.generationTimer = undefined;
           this.renderButtons(...this.buttonsCenter());
         }
       },
     });
+  }
+
+  private togglePause(): void {
+    if (!this.generationTimer) return;
+    this.paused = !this.paused;
+    this.generationTimer.paused = this.paused;
+    this.renderButtons(...this.buttonsCenter());
   }
 
   private buttonsCenter(): [number, number] {
@@ -174,6 +184,8 @@ export class MapPreviewScene extends Phaser.Scene {
   private renderButtons(centerX: number, centerY: number): void {
     this.startButton?.destroy();
     this.regenerateButton?.destroy();
+    this.pauseButton?.destroy();
+    this.pauseButton = undefined;
 
     const enabled = !this.generating;
 
@@ -199,6 +211,28 @@ export class MapPreviewScene extends Phaser.Scene {
       });
     }
 
+    let pauseButton: Phaser.GameObjects.Text | undefined;
+    if (this.generating) {
+      pauseButton = this.add
+        .text(0, centerY, this.paused ? "Resume" : "Pause", {
+          fontSize: "22px",
+          color: "#ffffff",
+          backgroundColor: "#ef6c00",
+          padding: { x: 20, y: 10 },
+        })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
+      pauseButton.on("pointerover", () =>
+        pauseButton?.setStyle({ backgroundColor: "#f57c00" })
+      );
+      pauseButton.on("pointerout", () =>
+        pauseButton?.setStyle({ backgroundColor: "#ef6c00" })
+      );
+      pauseButton.on("pointerdown", () => {
+        this.togglePause();
+      });
+    }
+
     const startButton = this.add
       .text(0, centerY, "Start", {
         fontSize: "22px",
@@ -219,13 +253,24 @@ export class MapPreviewScene extends Phaser.Scene {
       startButton.on("pointerdown", () => this.scene.start("GameScene", { map: this.map }));
     }
 
-    const totalWidth = regenerateButton.width + BUTTON_GAP + startButton.width;
+    const totalWidth =
+      regenerateButton.width +
+      BUTTON_GAP +
+      (pauseButton ? pauseButton.width + BUTTON_GAP : 0) +
+      startButton.width;
     const left = centerX - totalWidth / 2;
-    regenerateButton.setX(left + regenerateButton.width / 2);
-    startButton.setX(left + regenerateButton.width + BUTTON_GAP + startButton.width / 2);
+    let cursor = left;
+    regenerateButton.setX(cursor + regenerateButton.width / 2);
+    cursor += regenerateButton.width + BUTTON_GAP;
+    if (pauseButton) {
+      pauseButton.setX(cursor + pauseButton.width / 2);
+      cursor += pauseButton.width + BUTTON_GAP;
+    }
+    startButton.setX(cursor + startButton.width / 2);
 
     this.startButton = startButton;
     this.regenerateButton = regenerateButton;
+    this.pauseButton = pauseButton;
   }
 
   getTestBounds(): Record<string, ElementBounds> {
@@ -233,6 +278,7 @@ export class MapPreviewScene extends Phaser.Scene {
       title: rectFromBounds(this.titleText),
       startButton: rectFromBounds(this.startButton),
       regenerateButton: rectFromBounds(this.regenerateButton),
+      pauseButton: rectFromBounds(this.pauseButton),
       board: {
         x: this.boardOffsetX,
         y: this.boardOffsetY,
