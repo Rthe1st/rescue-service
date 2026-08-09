@@ -56,7 +56,7 @@ const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [0, -1],
 ];
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
 }
@@ -168,6 +168,46 @@ export function isInBounds(map: GameMap, x: number, y: number): boolean {
 /** Whether a player/flame can move directly between two orthogonally-adjacent tiles. */
 export function canPass(map: GameMap, x1: number, y1: number, x2: number, y2: number): boolean {
   return isInBounds(map, x1, y1) && isInBounds(map, x2, y2) && !hasWall(map, x1, y1, x2, y2);
+}
+
+/** Every border tile whose outward-facing wall has been opened into a doorway. */
+export function getDoorTiles(map: GameMap): Point[] {
+  const doors: Point[] = [];
+  for (let x = 1; x < map.width - 1; x++) {
+    if (!hasWall(map, x, 0, x, -1)) doors.push({ x, y: 0 });
+    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push({ x, y: map.height - 1 });
+  }
+  for (let y = 1; y < map.height - 1; y++) {
+    if (!hasWall(map, 0, y, -1, y)) doors.push({ x: 0, y });
+    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push({ x: map.width - 1, y });
+  }
+  return doors;
+}
+
+/** Every tile reachable from `start` by walking through open (non-walled) edges only. */
+export function findReachableTiles(map: GameMap, start: Point): Set<string> {
+  const visited = new Set<string>([pointKey(start.x, start.y)]);
+  const queue: Point[] = [start];
+
+  let head = 0;
+  while (head < queue.length) {
+    const point = queue[head];
+    head++;
+    if (!point) continue;
+
+    for (const [dx, dy] of ADJACENT_OFFSETS) {
+      const x = point.x + dx;
+      const y = point.y + dy;
+      if (!canPass(map, point.x, point.y, x, y)) continue;
+
+      const key = pointKey(x, y);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      queue.push({ x, y });
+    }
+  }
+
+  return visited;
 }
 
 export function getWallSegments(map: GameMap): WallSegment[] {
