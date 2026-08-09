@@ -170,6 +170,90 @@ export function canPass(map: GameMap, x1: number, y1: number, x2: number, y2: nu
   return isInBounds(map, x1, y1) && isInBounds(map, x2, y2) && !hasWall(map, x1, y1, x2, y2);
 }
 
+/** Every door tile on the map's border - a border tile whose outward-facing wall has been
+ * opened - as (x, y) coordinates. */
+export function findDoorTiles(map: GameMap): Array<[number, number]> {
+  const doors: Array<[number, number]> = [];
+  for (let x = 1; x < map.width - 1; x++) {
+    if (!hasWall(map, x, 0, x, -1)) doors.push([x, 0]);
+    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push([x, map.height - 1]);
+  }
+  for (let y = 1; y < map.height - 1; y++) {
+    if (!hasWall(map, 0, y, -1, y)) doors.push([0, y]);
+    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push([map.width - 1, y]);
+  }
+  return doors;
+}
+
+/** BFS flood-fill of every tile reachable from `start` by walking through open (non-walled)
+ * edges only. Returns a grid where `[y][x]` is true iff that tile is reachable from `start`. */
+export function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
+  const visited = Array.from({ length: map.height }, () =>
+    Array.from({ length: map.width }, () => false)
+  );
+  const [startX, startY] = start;
+  if (!isInBounds(map, startX, startY)) return visited;
+
+  const queue: Array<[number, number]> = [start];
+  const startRow = visited[startY];
+  if (startRow) startRow[startX] = true;
+
+  let head = 0;
+  while (head < queue.length) {
+    const point = queue[head];
+    head++;
+    if (!point) continue;
+    const [x, y] = point;
+
+    for (const [dx, dy] of ADJACENT_OFFSETS) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!isInBounds(map, nx, ny)) continue;
+      const row = visited[ny];
+      if (!row || row[nx]) continue;
+      if (!canPass(map, x, y, nx, ny)) continue;
+      row[nx] = true;
+      queue.push([nx, ny]);
+    }
+  }
+
+  return visited;
+}
+
+/** Picks a random door tile for the player to start at. Falls back to the bottom-left
+ * corner on a map with no doors (not expected in practice - door count is clamped to 1-10). */
+export function pickPlayerStart(
+  map: GameMap,
+  random: () => number = Math.random
+): [number, number] {
+  const doors = findDoorTiles(map);
+  if (doors.length === 0) return [0, map.height - 1];
+  const index = Math.floor(random() * doors.length);
+  return doors[index] ?? [0, map.height - 1];
+}
+
+/** Picks a random tile reachable from `playerStart` (excluding `playerStart` itself) for the
+ * fire to start at, so a freshly generated fire is always reachable to fight. Returns
+ * undefined only if `playerStart` is the map's sole reachable tile. */
+export function pickReachableFlameStart(
+  map: GameMap,
+  playerStart: [number, number],
+  random: () => number = Math.random
+): [number, number] | undefined {
+  const reachable = reachableFrom(map, playerStart);
+  const [playerX, playerY] = playerStart;
+
+  const candidates: Array<[number, number]> = [];
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (x === playerX && y === playerY) continue;
+      if (reachable[y]?.[x]) candidates.push([x, y]);
+    }
+  }
+
+  return candidates[Math.floor(random() * candidates.length)];
+}
+
 export function getWallSegments(map: GameMap): WallSegment[] {
   const segments: WallSegment[] = [];
   for (const key of map.walls) {

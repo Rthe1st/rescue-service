@@ -6,10 +6,14 @@ import {
   canPass,
   createBlankMap,
   createOpenMap,
+  findDoorTiles,
   generateMap,
   hasWall,
   isInBounds,
+  pickPlayerStart,
+  pickReachableFlameStart,
   placeRooms,
+  reachableFrom,
   type GameMap,
   type Room,
 } from "./mapGeneration";
@@ -38,57 +42,8 @@ function roomsTouch(a: Room, b: Room): boolean {
   return horizontallyTouching || verticallyTouching;
 }
 
-function findDoorTiles(map: GameMap): Array<[number, number]> {
-  const doors: Array<[number, number]> = [];
-  for (let x = 1; x < map.width - 1; x++) {
-    if (!hasWall(map, x, 0, x, -1)) doors.push([x, 0]);
-    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push([x, map.height - 1]);
-  }
-  for (let y = 1; y < map.height - 1; y++) {
-    if (!hasWall(map, 0, y, -1, y)) doors.push([0, y]);
-    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push([map.width - 1, y]);
-  }
-  return doors;
-}
-
 function countDoors(map: GameMap): number {
   return findDoorTiles(map).length;
-}
-
-function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
-  const visited = Array.from({ length: map.height }, () =>
-    Array.from({ length: map.width }, () => false)
-  );
-  const queue: Array<[number, number]> = [start];
-  const [startX, startY] = start;
-  const startRow = visited[startY];
-  if (startRow) startRow[startX] = true;
-
-  let head = 0;
-  while (head < queue.length) {
-    const point = queue[head];
-    head++;
-    if (!point) continue;
-    const [x, y] = point;
-
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (!isInBounds(map, nx, ny)) continue;
-      const row = visited[ny];
-      if (!row || row[nx]) continue;
-      if (!canPass(map, x, y, nx, ny)) continue;
-      row[nx] = true;
-      queue.push([nx, ny]);
-    }
-  }
-
-  return visited;
 }
 
 describe("generateMap", () => {
@@ -333,6 +288,38 @@ describe("placeRooms", () => {
         }
       }
     }
+  });
+});
+
+describe("pickPlayerStart", () => {
+  it("always picks one of the map's door tiles", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 7000) });
+      const doors = findDoorTiles(map);
+      const start = pickPlayerStart(map, mulberry32(seed + 8000));
+      expect(doors).toContainEqual(start);
+    }
+  });
+});
+
+describe("pickReachableFlameStart", () => {
+  it("always picks a tile reachable from the player's start, other than the start itself", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 9000) });
+      const start = pickPlayerStart(map, mulberry32(seed + 10000));
+      const choice = pickReachableFlameStart(map, start, mulberry32(seed + 11000));
+      expect(choice).toBeDefined();
+      if (!choice) continue;
+
+      expect(choice).not.toEqual(start);
+      const reachable = reachableFrom(map, start);
+      expect(reachable[choice[1]]?.[choice[0]]).toBe(true);
+    }
+  });
+
+  it("returns undefined when the player's start is the map's only tile", () => {
+    const map = createOpenMap(1, 1);
+    expect(pickReachableFlameStart(map, [0, 0])).toBeUndefined();
   });
 });
 

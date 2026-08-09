@@ -5,6 +5,8 @@ import {
   canPass,
   generateMap,
   getWallSegments,
+  pickPlayerStart,
+  pickReachableFlameStart,
   type GameMap,
   type WallSegment,
 } from "./mapGeneration";
@@ -195,8 +197,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private placePlayerAtStart(): void {
-    this.playerRow = this.gridSize - 1;
-    this.playerCol = 0;
+    const [col, row] = pickPlayerStart(this.map);
+    this.playerCol = col;
+    this.playerRow = row;
   }
 
   private setupDebugGui(): void {
@@ -540,17 +543,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private igniteRandomFlame(): void {
-    const candidates: string[] = [];
-    for (let row = 0; row < this.gridSize; row++) {
-      for (let col = 0; col < this.gridSize; col++) {
-        if (row === this.playerRow && col === this.playerCol) continue;
-        candidates.push(squareKey(row, col));
-      }
-    }
-
-    const choice = candidates[Math.floor(Math.random() * candidates.length)];
+    const choice = pickReachableFlameStart(this.map, [this.playerCol, this.playerRow]);
     if (!choice) return;
-    this.flames = new Set([choice]);
+    this.flames = new Set([squareKey(choice[1], choice[0])]);
   }
 
   private pruneFlames(): void {
