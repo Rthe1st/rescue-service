@@ -74,7 +74,9 @@ export class MapPreviewScene extends Phaser.Scene {
   private startGeneration(): void {
     this.generationTimer?.remove();
 
-    const steps = generateMapSteps(this.gridSize, this.gridSize);
+    const steps = generateMapSteps(this.gridSize, this.gridSize, {
+      doorCount: gameSettings.doorCount,
+    });
     this.generating = true;
     this.paused = false;
     this.renderButtons(...this.buttonsCenter());

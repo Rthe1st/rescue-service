@@ -101,7 +101,9 @@ export class MainMenuScene extends Phaser.Scene {
         this.scene.start("MapPreviewScene");
       } else {
         this.scene.start("GameScene", {
-          map: generateMap(gameSettings.gridSize, gameSettings.gridSize),
+          map: generateMap(gameSettings.gridSize, gameSettings.gridSize, {
+            doorCount: gameSettings.doorCount,
+          }),
         });
       }
     });

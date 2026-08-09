@@ -90,6 +90,7 @@ export class GameScene extends Phaser.Scene {
   private firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
   private phaseTimerMs = this.firefightingDurationMs;
   private spreadDirections = gameSettings.spreadDirections;
+  private doorCount = gameSettings.doorCount;
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
@@ -149,7 +150,9 @@ export class GameScene extends Phaser.Scene {
     this.settingsButton = settingsButton;
 
     this.applySettings();
-    this.map = this.providedMap ?? generateMap(this.gridSize, this.gridSize);
+    this.map =
+      this.providedMap ??
+      generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount });
     this.providedMap = undefined;
     this.startRound();
 
@@ -185,6 +188,7 @@ export class GameScene extends Phaser.Scene {
     this.buttonSpacing = gameSettings.buttonSpacing;
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
+    this.doorCount = gameSettings.doorCount;
   }
 
   private startRound(): void {
@@ -205,9 +209,14 @@ export class GameScene extends Phaser.Scene {
 
   private setupDebugGui(): void {
     const gui = createSettingsGui(() => {
+      const previousDoorCount = this.doorCount;
       this.applySettings();
-      if (this.map.width !== this.gridSize || this.map.height !== this.gridSize) {
-        this.map = generateMap(this.gridSize, this.gridSize);
+      if (
+        this.map.width !== this.gridSize ||
+        this.map.height !== this.gridSize ||
+        this.doorCount !== previousDoorCount
+      ) {
+        this.map = generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount });
         this.startRound();
       } else {
         this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
