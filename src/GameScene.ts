@@ -12,9 +12,11 @@ import {
   type GameMap,
   type WallSegment,
 } from "./mapGeneration";
+import { generatePlayerNames } from "./playerNames";
 
 const CONTROLS_AREA_SIZE = 140;
-const TOP_MARGIN = 80;
+const TOP_MARGIN = 104;
+const TURN_ORDER_TEXT_Y = 82;
 const MARGIN = 20;
 const CONTROLS_GAP = 20;
 
@@ -27,6 +29,9 @@ const WALL_COLOR = 0x212121;
 const DOOR_COLOR = 0x795548;
 const PLAYER_COLOR = 0x000000;
 const FLAME_COLOR = 0xe53935;
+const ACTIVE_PLAYER_BORDER_COLOR = 0xffeb3b;
+const ACTIVE_PLAYER_BORDER_WIDTH = 3;
+const PLAYER_CIRCLE_SIZE_RATIO = 0.8;
 
 const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [-1, 0],
@@ -65,6 +70,12 @@ interface Direction {
   y: number;
 }
 
+interface Player {
+  name: string;
+  row: number;
+  col: number;
+}
+
 export interface ElementBounds {
   x: number;
   y: number;
@@ -82,8 +93,10 @@ export class GameScene extends Phaser.Scene {
   private controlButtonsByName = new Map<string, Phaser.GameObjects.Text>();
   private endGameButton: Phaser.GameObjects.Text | undefined;
   private settingsButton: Phaser.GameObjects.Text | undefined;
-  private playerRow = DEFAULT_GRID_SIZE - 1;
-  private playerCol = 0;
+  private players: Player[] = [];
+  private activePlayerIndex = 0;
+  private playerLabels = new Map<number, Phaser.GameObjects.Text>();
+  private playerMarkers = new Map<number, Phaser.GameObjects.Arc>();
   private gridSize = DEFAULT_GRID_SIZE;
   private cellSizeScale = gameSettings.cellSizeScale;
   private buttonFontSize = gameSettings.buttonSize;
@@ -99,6 +112,7 @@ export class GameScene extends Phaser.Scene {
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  private turnOrderText!: Phaser.GameObjects.Text;
   private map!: GameMap;
   private providedMap: GameMap | undefined;
   private accessibleTiles = new Set<string>();
@@ -155,14 +169,6 @@ export class GameScene extends Phaser.Scene {
     this.endGameButton = endGameButton;
     this.settingsButton = settingsButton;
 
-    this.applySettings();
-    this.setMap(
-      this.providedMap ??
-        generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount })
-    );
-    this.providedMap = undefined;
-    this.startRound();
-
     this.timerText = this.add
       .text(width / 2, 58, "", { fontSize: "16px", color: "#ffffff" })
       .setOrigin(0.5);
@@ -173,6 +179,20 @@ export class GameScene extends Phaser.Scene {
         fontStyle: "bold",
       })
       .setOrigin(0.5);
+    this.turnOrderText = this.add
+      .text(width / 2, TURN_ORDER_TEXT_Y, "", {
+        fontSize: "14px",
+        color: "#b0bec5",
+      })
+      .setOrigin(0.5);
+
+    this.applySettings();
+    this.setMap(
+      this.providedMap ??
+        generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount })
+    );
+    this.providedMap = undefined;
+    this.startRound();
 
     this.layout();
     this.setupDebugGui();
@@ -199,26 +219,68 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startRound(): void {
-    this.placePlayerAtStart();
+    this.placePlayersAtStart();
     this.phase = "firefighting";
     this.phaseTimerMs = this.firefightingDurationMs;
     this.gameOver = false;
     this.flames = new Set();
     this.igniteRandomFlame();
+    this.updateTurnOrderText();
   }
 
-  // Always starts the player at a random tile on the outer ring - the edge of the map -
-  // which the ring/grass guarantee is always walkable and always connects to every room.
-  private placePlayerAtStart(): void {
+  private placePlayersAtStart(): void {
+    const count = Math.max(1, Math.floor(gameSettings.playerCount));
+    const names = generatePlayerNames(count);
+    const positions = this.pickDistinctStartPositions(count);
+    this.players = positions.map((position, i) => ({
+      name: names[i] ?? `Player ${String(i + 1)}`,
+      row: position.y,
+      col: position.x,
+    }));
+    this.activePlayerIndex = 0;
+  }
+
+  // Fills from a shuffled list of outer-ring tiles first (mirroring the single-player start
+  // rule: always begin on the ring, which is guaranteed walkable and connects to every room),
+  // then falls back to any other accessible tile once the ring runs out, so no two player
+  // characters ever start on the same tile.
+  private pickDistinctStartPositions(count: number): Array<{ x: number; y: number }> {
+    const positions: Array<{ x: number; y: number }> = [];
+    const used = new Set<string>();
+
+    const addIfUnused = (x: number, y: number): void => {
+      const key = `${String(x)},${String(y)}`;
+      if (used.has(key)) return;
+      used.add(key);
+      positions.push({ x, y });
+    };
+
     const ringTiles: Array<{ x: number; y: number }> = [];
     for (let y = 0; y < this.map.height; y++) {
       for (let x = 0; x < this.map.width; x++) {
         if (isOuterRing(this.map, x, y)) ringTiles.push({ x, y });
       }
     }
-    const tile = ringTiles[Math.floor(Math.random() * ringTiles.length)];
-    this.playerCol = tile?.x ?? 0;
-    this.playerRow = tile?.y ?? this.gridSize - 1;
+    for (const tile of shuffleArray(ringTiles)) {
+      if (positions.length >= count) break;
+      addIfUnused(tile.x, tile.y);
+    }
+
+    if (positions.length < count) {
+      for (const key of shuffleArray([...this.accessibleTiles])) {
+        if (positions.length >= count) break;
+        const [row, col] = parseSquareKey(key);
+        addIfUnused(col, row);
+      }
+    }
+
+    // Only reachable if the map has fewer walkable tiles than requested players; reuse
+    // positions rather than leaving characters unplaced.
+    for (let i = 0; positions.length < count && positions.length > 0; i++) {
+      positions.push(positions[i % positions.length] ?? { x: 0, y: this.gridSize - 1 });
+    }
+
+    return positions;
   }
 
   // Records `map` and re-derives which tiles are reachable at all (so pockets cut off from
@@ -234,6 +296,7 @@ export class GameScene extends Phaser.Scene {
   private setupDebugGui(): void {
     const gui = createSettingsGui(() => {
       const previousDoorCount = this.doorCount;
+      const previousPlayerCount = this.players.length;
       this.applySettings();
       if (
         this.map.width !== this.gridSize ||
@@ -242,9 +305,13 @@ export class GameScene extends Phaser.Scene {
       ) {
         this.setMap(generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount }));
         this.startRound();
+      } else if (gameSettings.playerCount !== previousPlayerCount) {
+        this.startRound();
       } else {
-        this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
-        this.playerCol = Math.min(this.playerCol, this.gridSize - 1);
+        for (const player of this.players) {
+          player.row = Math.min(player.row, this.gridSize - 1);
+          player.col = Math.min(player.col, this.gridSize - 1);
+        }
       }
       this.layout();
     });
@@ -284,6 +351,7 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.timerText.setX(width / 2);
     this.statusText.setX(width / 2);
+    this.turnOrderText.setX(width / 2);
     let availableWidth: number;
     let availableHeight: number;
     let controlsCenterX: number;
@@ -339,6 +407,8 @@ export class GameScene extends Phaser.Scene {
 
     this.createBoard();
     this.drawWalls();
+    this.createPlayerMarkers();
+    this.createPlayerLabels();
     this.createControls(controlsCenterX, controlsCenterY);
   }
 
@@ -392,11 +462,80 @@ export class GameScene extends Phaser.Scene {
   }
 
   private squareFill(row: number, col: number): number {
-    if (row === this.playerRow && col === this.playerCol) return PLAYER_COLOR;
     if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
     if (!this.accessibleTiles.has(squareKey(row, col))) return INACCESSIBLE_COLOR;
     if (isGrass(this.map, col, row)) return OUTSIDE_COLOR;
     return EMPTY_COLOR;
+  }
+
+  private createPlayerMarkers(): void {
+    for (const marker of this.playerMarkers.values()) marker.destroy();
+    this.playerMarkers.clear();
+
+    const radius = (this.cellSize * PLAYER_CIRCLE_SIZE_RATIO) / 2;
+    this.players.forEach((player, index) => {
+      const marker = this.add.circle(
+        this.boardOffsetX + player.col * this.cellSize + this.cellSize / 2,
+        this.boardOffsetY + player.row * this.cellSize + this.cellSize / 2,
+        radius,
+        PLAYER_COLOR
+      );
+      this.playerMarkers.set(index, marker);
+    });
+
+    this.updateActivePlayerBorder();
+  }
+
+  private createPlayerLabels(): void {
+    for (const label of this.playerLabels.values()) label.destroy();
+    this.playerLabels.clear();
+
+    const fontSize = Math.max(10, Math.round(this.cellSize * 0.6));
+    this.players.forEach((player, index) => {
+      const label = this.add
+        .text(
+          this.boardOffsetX + player.col * this.cellSize + this.cellSize / 2,
+          this.boardOffsetY + player.row * this.cellSize + this.cellSize / 2,
+          player.name.charAt(0).toUpperCase(),
+          {
+            fontSize: `${String(fontSize)}px`,
+            color: "#ffffff",
+            fontStyle: "bold",
+          }
+        )
+        .setOrigin(0.5);
+      this.playerLabels.set(index, label);
+    });
+  }
+
+  private updateActivePlayerBorder(): void {
+    this.playerMarkers.forEach((marker, index) => {
+      if (index === this.activePlayerIndex) {
+        marker.setStrokeStyle(ACTIVE_PLAYER_BORDER_WIDTH, ACTIVE_PLAYER_BORDER_COLOR, 1);
+      } else {
+        marker.setStrokeStyle(0);
+      }
+    });
+  }
+
+  private updateTurnOrderText(): void {
+    if (this.players.length <= 1) {
+      this.turnOrderText.setText("").setVisible(false);
+      return;
+    }
+
+    const order = this.players
+      .map((player, index) =>
+        index === this.activePlayerIndex ? `▶${player.name}` : player.name
+      )
+      .join("  ");
+    this.turnOrderText.setText(`Turn order: ${order}`).setVisible(true);
+  }
+
+  private isAnyPlayerOnFlame(): boolean {
+    return this.players.some((player) =>
+      this.flames.has(squareKey(player.row, player.col))
+    );
   }
 
   private createControls(centerX: number, centerY: number): void {
@@ -500,23 +639,41 @@ export class GameScene extends Phaser.Scene {
   private movePlayer(dRow: number, dCol: number): void {
     if (!this.canMove()) return;
 
-    const row = this.playerRow + dRow;
-    const col = this.playerCol + dCol;
-    if (!canPass(this.map, this.playerCol, this.playerRow, col, row)) return;
+    const player = this.players[this.activePlayerIndex];
+    if (!player) return;
 
-    const previousRow = this.playerRow;
-    const previousCol = this.playerCol;
-    this.playerRow = row;
-    this.playerCol = col;
+    const row = player.row + dRow;
+    const col = player.col + dCol;
+    if (!canPass(this.map, player.col, player.row, col, row)) return;
+
+    const occupiedByOther = this.players.some(
+      (other, index) => index !== this.activePlayerIndex && other.row === row && other.col === col
+    );
+    if (occupiedByOther) return;
+
+    const previousRow = player.row;
+    const previousCol = player.col;
+    player.row = row;
+    player.col = col;
 
     this.getSquare(previousRow, previousCol).setFillStyle(
       this.squareFill(previousRow, previousCol)
     );
     this.getSquare(row, col).setFillStyle(this.squareFill(row, col));
 
-    if (this.flames.has(squareKey(row, col))) {
+    const markerX = this.boardOffsetX + col * this.cellSize + this.cellSize / 2;
+    const markerY = this.boardOffsetY + row * this.cellSize + this.cellSize / 2;
+    this.playerMarkers.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
+    this.playerLabels.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
+
+    if (this.isAnyPlayerOnFlame()) {
       this.endGame();
+      return;
     }
+
+    this.activePlayerIndex = (this.activePlayerIndex + 1) % this.players.length;
+    this.updateTurnOrderText();
+    this.updateActivePlayerBorder();
   }
 
   private getSquare(row: number, col: number): Phaser.GameObjects.Rectangle {
@@ -549,7 +706,7 @@ export class GameScene extends Phaser.Scene {
     this.spreadFlames();
     this.layout();
 
-    if (this.flames.has(squareKey(this.playerRow, this.playerCol))) {
+    if (this.isAnyPlayerOnFlame()) {
       this.endGame();
       return;
     }
@@ -593,9 +750,10 @@ export class GameScene extends Phaser.Scene {
   // from the ring during generation, so `accessibleTiles` already is "reachable from the
   // player" - reusing it here avoids a second reachability walk over the same map.
   private igniteRandomFlame(): void {
-    const candidates = [...this.accessibleTiles].filter(
-      (key) => key !== squareKey(this.playerRow, this.playerCol)
+    const occupied = new Set(
+      this.players.map((player) => squareKey(player.row, player.col))
     );
+    const candidates = [...this.accessibleTiles].filter((key) => !occupied.has(key));
     const choice = candidates[Math.floor(Math.random() * candidates.length)];
     if (!choice) return;
     this.flames = new Set([choice]);
@@ -636,6 +794,19 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
+}
+
+function shuffleArray<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const a = result[i];
+    const b = result[j];
+    if (a === undefined || b === undefined) continue;
+    result[i] = b;
+    result[j] = a;
+  }
+  return result;
 }
 
 function wallSegmentToLine(
