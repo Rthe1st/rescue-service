@@ -9,6 +9,9 @@ export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
 export const DEFAULT_EDIT_MAPS_BEFORE_PLAY = false;
 export const DEFAULT_GENERATION_STEP_DELAY_MS = 20;
+export const DEFAULT_PLAYER_COUNT = 1;
+export const MIN_PLAYER_COUNT = 1;
+export const MAX_PLAYER_COUNT = 8;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -22,6 +25,7 @@ export interface GameParams {
   editMapsBeforePlay: boolean;
   generationStepDelayMs: number;
   doorCount: number;
+  playerCount: number;
 }
 
 export const gameSettings: GameParams = {
@@ -34,6 +38,7 @@ export const gameSettings: GameParams = {
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
   generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
   doorCount: DEFAULT_DOOR_COUNT,
+  playerCount: DEFAULT_PLAYER_COUNT,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -48,7 +53,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["spreadDirections"] === "number" &&
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
     typeof candidate["generationStepDelayMs"] === "number" &&
-    typeof candidate["doorCount"] === "number"
+    typeof candidate["doorCount"] === "number" &&
+    typeof candidate["playerCount"] === "number"
   );
 }
 
@@ -114,6 +120,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "doorCount", MIN_DOOR_COUNT, MAX_DOOR_COUNT, 1)
     .name("Number of doors")
     .onChange(() => onChange?.());
+  const playerCountController = gui
+    .add(gameSettings, "playerCount", MIN_PLAYER_COUNT, MAX_PLAYER_COUNT, 1)
+    .name("Number of players")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -131,6 +141,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
     gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
     gameSettings.doorCount = preset.doorCount;
+    gameSettings.playerCount = preset.playerCount;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -140,6 +151,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     editMapsBeforePlayController.updateDisplay();
     generationStepDelayController.updateDisplay();
     doorCountController.updateDisplay();
+    playerCountController.updateDisplay();
 
     onChange?.();
   };
