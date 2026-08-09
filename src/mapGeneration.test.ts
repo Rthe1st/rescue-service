@@ -180,16 +180,16 @@ describe("placeRooms", () => {
   const WIDTH = 40;
   const HEIGHT = 40;
 
-  it("places rooms whose sides are each in the 1-4 range", () => {
+  it("places rooms whose sides are each in the 2-4 range, never width or height 1", () => {
     for (let seed = 0; seed < 10; seed++) {
       const map = createBlankMap(WIDTH, HEIGHT);
       const rooms = placeRooms(map, mulberry32(seed));
       expect(rooms.length).toBeGreaterThan(0);
 
       for (const room of rooms) {
-        expect(room.width).toBeGreaterThanOrEqual(1);
+        expect(room.width).toBeGreaterThanOrEqual(2);
         expect(room.width).toBeLessThanOrEqual(4);
-        expect(room.height).toBeGreaterThanOrEqual(1);
+        expect(room.height).toBeGreaterThanOrEqual(2);
         expect(room.height).toBeLessThanOrEqual(4);
       }
     }
@@ -212,7 +212,7 @@ describe("placeRooms", () => {
     }
   });
 
-  it("allows a room's random draw to extend past the map edge, cropped to fit", () => {
+  it("allows a room's random draw to extend past the map edge, cropped to fit, but never crops below 2x2", () => {
     // A tiny map makes edge-cropping likely on nearly every placement attempt.
     for (let seed = 0; seed < 20; seed++) {
       const map = createBlankMap(3, 3);
@@ -222,6 +222,8 @@ describe("placeRooms", () => {
         expect(room.top).toBeGreaterThanOrEqual(0);
         expect(room.left + room.width).toBeLessThanOrEqual(3);
         expect(room.top + room.height).toBeLessThanOrEqual(3);
+        expect(room.width).toBeGreaterThanOrEqual(2);
+        expect(room.height).toBeGreaterThanOrEqual(2);
       }
     }
   });

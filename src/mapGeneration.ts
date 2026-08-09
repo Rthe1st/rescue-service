@@ -43,10 +43,9 @@ export const DEFAULT_DOOR_COUNT = 2;
 export const MIN_DOOR_COUNT = 1;
 export const MAX_DOOR_COUNT = 10;
 
-// Each room's width and height are independently randomized in this range
-// (so both orientations of e.g. a 2x1 room are equally likely), rerolling
-// the degenerate 1x1 case since the smallest allowed room is 2x1/1x2.
-const MIN_ROOM_SIDE = 1;
+// Each room's width and height are independently randomized in this range.
+// The smallest allowed room is 2x2 - no room is ever as thin as a single tile.
+const MIN_ROOM_SIDE = 2;
 const MAX_ROOM_SIDE = 4;
 const ROOM_PLACEMENT_ATTEMPTS_PER_CELL = 4;
 
@@ -233,7 +232,6 @@ function randomRoom(
 ): Room | undefined {
   const roomWidth = randomRoomSide(random);
   const roomHeight = randomRoomSide(random);
-  if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
 
   const left = randomOffMapCoordinate(mapWidth, roomWidth, random);
   const top = randomOffMapCoordinate(mapHeight, roomHeight, random);
@@ -255,7 +253,6 @@ function randomAdjacentRoom(
 
   const roomWidth = randomRoomSide(random);
   const roomHeight = randomRoomSide(random);
-  if (roomWidth === MIN_ROOM_SIDE && roomHeight === MIN_ROOM_SIDE) return undefined;
 
   let left: number;
   let top: number;
@@ -279,6 +276,9 @@ function randomOffMapCoordinate(mapSize: number, size: number, random: () => num
   return Math.floor(random() * (mapSize + size - 1)) - (size - 1);
 }
 
+// Cropping to the map bounds can shrink a room that started at or above MIN_ROOM_SIDE down
+// to something thinner (e.g. a 2x3 room placed mostly off the edge); reject those rather
+// than placing a room narrower than MIN_ROOM_SIDE in either dimension.
 function cropToMap(rect: Room, mapWidth: number, mapHeight: number): Room | undefined {
   const left = Math.max(0, rect.left);
   const top = Math.max(0, rect.top);
@@ -286,7 +286,7 @@ function cropToMap(rect: Room, mapWidth: number, mapHeight: number): Room | unde
   const bottom = Math.min(mapHeight, rect.top + rect.height);
   const width = right - left;
   const height = bottom - top;
-  if (width < 1 || height < 1) return undefined;
+  if (width < MIN_ROOM_SIDE || height < MIN_ROOM_SIDE) return undefined;
 
   return { left, top, width, height };
 }
