@@ -2,19 +2,33 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DOOR_COUNT,
   MAX_DOOR_COUNT,
-  MIN_DOOR_COUNT,
   canPass,
+  computeGrassTiles,
   createBlankMap,
   createOpenMap,
-  findReachableTiles,
   generateMap,
-  getDoorTiles,
+  getDoorSegments,
+  getReachableTiles,
+  hasDoor,
   hasWall,
+  isGrass,
+  isInAnyRoom,
   isInBounds,
+  isOuterRing,
+  placeFrontDoors,
   placeRooms,
   type GameMap,
   type Room,
+  type WallSegment,
 } from "./mapGeneration";
+
+function isFrontDoorSegment(map: GameMap, segment: WallSegment): boolean {
+  const aInRoom = isInAnyRoom(map, segment.x1, segment.y1);
+  const bInRoom = isInAnyRoom(map, segment.x2, segment.y2);
+  const aRing = isOuterRing(map, segment.x1, segment.y1);
+  const bRing = isOuterRing(map, segment.x2, segment.y2);
+  return (aInRoom && bRing) || (bInRoom && aRing);
+}
 
 // Deterministic PRNG so map generation is reproducible across test runs.
 function mulberry32(seed: number): () => number {
@@ -40,59 +54,6 @@ function roomsTouch(a: Room, b: Room): boolean {
   return horizontallyTouching || verticallyTouching;
 }
 
-function findDoorTiles(map: GameMap): Array<[number, number]> {
-  const doors: Array<[number, number]> = [];
-  for (let x = 1; x < map.width - 1; x++) {
-    if (!hasWall(map, x, 0, x, -1)) doors.push([x, 0]);
-    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push([x, map.height - 1]);
-  }
-  for (let y = 1; y < map.height - 1; y++) {
-    if (!hasWall(map, 0, y, -1, y)) doors.push([0, y]);
-    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push([map.width - 1, y]);
-  }
-  return doors;
-}
-
-function countDoors(map: GameMap): number {
-  return findDoorTiles(map).length;
-}
-
-function reachableFrom(map: GameMap, start: [number, number]): boolean[][] {
-  const visited = Array.from({ length: map.height }, () =>
-    Array.from({ length: map.width }, () => false)
-  );
-  const queue: Array<[number, number]> = [start];
-  const [startX, startY] = start;
-  const startRow = visited[startY];
-  if (startRow) startRow[startX] = true;
-
-  let head = 0;
-  while (head < queue.length) {
-    const point = queue[head];
-    head++;
-    if (!point) continue;
-    const [x, y] = point;
-
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (!isInBounds(map, nx, ny)) continue;
-      const row = visited[ny];
-      if (!row || row[nx]) continue;
-      if (!canPass(map, x, y, nx, ny)) continue;
-      row[nx] = true;
-      queue.push([nx, ny]);
-    }
-  }
-
-  return visited;
-}
-
 describe("generateMap", () => {
   it("returns a map with the requested dimensions", () => {
     const map = generateMap(20, 14, { random: mulberry32(1) });
@@ -100,25 +61,15 @@ describe("generateMap", () => {
     expect(map.height).toBe(14);
   });
 
-  it.each([1, 2, 3, 5, 10])(
-    "carves exactly the requested number of doors (%i) into the border",
-    (doorCount) => {
-      const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount) });
-      expect(countDoors(map)).toBe(doorCount);
-    }
-  );
-
   it("defaults to 2 doors when doorCount is not specified", () => {
     expect(DEFAULT_DOOR_COUNT).toBe(2);
   });
 
-  it.each([-5, 0, 100])(
-    "clamps out-of-range doorCount (%i) into the 1-10 range",
+  it.each([-5, 0, 100, 3])(
+    "produces at least one door regardless of doorCount (%i), whether clamped or in range",
     (doorCount) => {
       const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount + 50) });
-      const doorTiles = countDoors(map);
-      expect(doorTiles).toBeGreaterThanOrEqual(MIN_DOOR_COUNT);
-      expect(doorTiles).toBeLessThanOrEqual(MAX_DOOR_COUNT);
+      expect(getDoorSegments(map).length).toBeGreaterThan(0);
     }
   );
 
@@ -139,24 +90,23 @@ describe("generateMap", () => {
     [30, 24],
     [9, 9],
   ])(
-    "makes every room/door tile reachable from EVERY individual door, not just the union of doors (%ix%i)",
+    "makes every room reachable from the outer ring (%ix%i)",
     (width, height) => {
       for (let seed = 0; seed < 5; seed++) {
         const map = generateMap(width, height, {
           doorCount: (seed % MAX_DOOR_COUNT) + 1,
           random: mulberry32(width * 1000 + height * 10 + seed),
         });
-        const doors = findDoorTiles(map);
-        expect(doors.length).toBeGreaterThan(0);
+        expect(map.rooms.length).toBeGreaterThan(0);
 
-        for (const door of doors) {
-          const reachable = reachableFrom(map, door);
-          for (const otherDoor of doors) {
-            expect(
-              reachable[otherDoor[1]]?.[otherDoor[0]],
-              `expected door (${String(door[0])}, ${String(door[1])}) to reach door (${String(otherDoor[0])}, ${String(otherDoor[1])})`
-            ).toBe(true);
-          }
+        const reachable = new Set(
+          getReachableTiles(map, { x: 0, y: 0 }).map((tile) => `${String(tile.x)},${String(tile.y)}`)
+        );
+        for (const room of map.rooms) {
+          expect(
+            reachable.has(`${String(room.left)},${String(room.top)}`),
+            `expected room at (${String(room.left)}, ${String(room.top)}) to be reachable from the ring`
+          ).toBe(true);
         }
       }
     }
@@ -175,6 +125,276 @@ describe("generateMap", () => {
     [1.5, 5],
   ])("rejects invalid dimensions (%i, %i)", (width, height) => {
     expect(() => generateMap(width, height)).toThrow();
+  });
+
+  it.each([
+    [10, 10],
+    [13, 9],
+    [20, 20],
+    [30, 24],
+  ])(
+    "never places a room touching the map edge, leaving a 1-tile walkable ring free (%ix%i)",
+    (width, height) => {
+      for (let seed = 0; seed < 10; seed++) {
+        const map = createOpenMap(width, height);
+        const rooms = placeRooms(map, mulberry32(seed + 7000), {
+          left: 1,
+          top: 1,
+          width: width - 2,
+          height: height - 2,
+        });
+        for (const room of rooms) {
+          expect(room.left).toBeGreaterThanOrEqual(1);
+          expect(room.top).toBeGreaterThanOrEqual(1);
+          expect(room.left + room.width).toBeLessThanOrEqual(width - 1);
+          expect(room.top + room.height).toBeLessThanOrEqual(height - 1);
+        }
+      }
+    }
+  );
+
+  it.each([
+    [10, 10],
+    [13, 9],
+    [20, 20],
+  ])("keeps the entire outer ring walkable all the way around, unblocked by any wall (%ix%i)", (width, height) => {
+    for (let seed = 0; seed < 5; seed++) {
+      const map = generateMap(width, height, {
+        doorCount: (seed % MAX_DOOR_COUNT) + 1,
+        random: mulberry32(width * 1000 + height * 10 + seed + 8000),
+      });
+
+      const ring: Array<[number, number]> = [];
+      for (let x = 0; x < width; x++) {
+        ring.push([x, 0]);
+        ring.push([x, height - 1]);
+      }
+      for (let y = 1; y < height - 1; y++) {
+        ring.push([0, y]);
+        ring.push([width - 1, y]);
+      }
+
+      const reachable = new Set(
+        getReachableTiles(map, { x: 0, y: 0 }).map((tile) => `${String(tile.x)},${String(tile.y)}`)
+      );
+      for (const [x, y] of ring) {
+        expect(reachable.has(`${String(x)},${String(y)}`), `expected ring tile (${String(x)}, ${String(y)}) to be walkable from (0, 0)`).toBe(true);
+      }
+    }
+  });
+});
+
+describe("isOuterRing", () => {
+  it("only reports the outermost 1-tile border as the ring", () => {
+    const map = createOpenMap(5, 4);
+    expect(isOuterRing(map, 0, 0)).toBe(true);
+    expect(isOuterRing(map, 4, 0)).toBe(true);
+    expect(isOuterRing(map, 0, 3)).toBe(true);
+    expect(isOuterRing(map, 4, 3)).toBe(true);
+    expect(isOuterRing(map, 2, 0)).toBe(true);
+    expect(isOuterRing(map, 0, 2)).toBe(true);
+    expect(isOuterRing(map, 2, 2)).toBe(false);
+    expect(isOuterRing(map, 1, 1)).toBe(false);
+  });
+});
+
+describe("getReachableTiles", () => {
+  it("only includes the start tile when every neighbor is walled off", () => {
+    const map = createBlankMap(5, 5);
+    expect(getReachableTiles(map, { x: 2, y: 2 })).toEqual([{ x: 2, y: 2 }]);
+  });
+
+  it("reaches every tile on a fully open map", () => {
+    const map = createOpenMap(5, 5);
+    const reachable = getReachableTiles(map, { x: 0, y: 0 });
+    expect(reachable).toHaveLength(25);
+  });
+
+  it("doesn't cross walls enclosing an isolated tile", () => {
+    const map = createOpenMap(6, 6);
+    for (const key of ["0,1|1,1", "1,1|2,1", "1,0|1,1", "1,1|1,2"]) map.walls.add(key);
+
+    const reachable = getReachableTiles(map, { x: 0, y: 0 });
+    const reachableKeys = new Set(reachable.map((tile) => `${String(tile.x)},${String(tile.y)}`));
+    expect(reachableKeys.has("1,1")).toBe(false);
+    expect(reachableKeys.has("5,5")).toBe(true);
+  });
+});
+
+// A map with rooms placed but no front doors or corridor connections carved yet, for testing
+// placeFrontDoors in isolation from what connectRoomsSteps might additionally carve.
+function roomMap(width: number, height: number, seed: number): GameMap {
+  const map = createOpenMap(width, height);
+  placeRooms(map, mulberry32(seed), {
+    left: 1,
+    top: 1,
+    width: width - 2,
+    height: height - 2,
+  });
+  return map;
+}
+
+describe("placeFrontDoors", () => {
+  it.each([1, 2, 3, 5, 10])(
+    "carves at most the requested number of doors (%i) between rooms and the ring",
+    (doorCount) => {
+      const map = roomMap(30, 20, doorCount);
+      placeFrontDoors(map, doorCount, mulberry32(doorCount + 500));
+      expect(getDoorSegments(map).length).toBeLessThanOrEqual(doorCount);
+    }
+  );
+
+  it("carves exactly the requested number of doors when enough rooms border the ring", () => {
+    let sawFullCount = false;
+    for (let seed = 0; seed < 10 && !sawFullCount; seed++) {
+      const map = roomMap(40, 30, seed + 13000);
+      placeFrontDoors(map, 3, mulberry32(seed + 13500));
+      if (getDoorSegments(map).length === 3) sawFullCount = true;
+    }
+    expect(sawFullCount).toBe(true);
+  });
+
+  it("only ever opens a wall directly between a room and the ring", () => {
+    const map = roomMap(30, 20, 777);
+    placeFrontDoors(map, MAX_DOOR_COUNT, mulberry32(778));
+    for (const segment of getDoorSegments(map)) {
+      expect(isFrontDoorSegment(map, segment)).toBe(true);
+    }
+  });
+});
+
+describe("doors (map.doors / hasDoor / getDoorSegments)", () => {
+  it("never carves a door into the map's own outer edge - the ring is already fully walkable, there's nowhere beyond it to go", () => {
+    for (let seed = 0; seed < 5; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 9000) });
+      for (let x = 0; x < map.width; x++) {
+        expect(hasWall(map, x, 0, x, -1)).toBe(true);
+        expect(hasWall(map, x, map.height - 1, x, map.height)).toBe(true);
+      }
+      for (let y = 0; y < map.height; y++) {
+        expect(hasWall(map, 0, y, -1, y)).toBe(true);
+        expect(hasWall(map, map.width - 1, y, map.width, y)).toBe(true);
+      }
+    }
+  });
+
+  it("places at least one front door directly between a room and the ring, across trials", () => {
+    let sawFrontDoor = false;
+    for (let seed = 0; seed < 10 && !sawFrontDoor; seed++) {
+      const map = generateMap(20, 16, { doorCount: 2, random: mulberry32(seed + 10000) });
+      if (getDoorSegments(map).some((segment) => isFrontDoorSegment(map, segment))) {
+        sawFrontDoor = true;
+      }
+    }
+    expect(sawFrontDoor).toBe(true);
+  });
+
+  it("every door touches at least one room - the only walls that ever exist are room perimeter walls", () => {
+    const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(11500) });
+    expect(getDoorSegments(map).length).toBeGreaterThan(0);
+    for (const segment of getDoorSegments(map)) {
+      const touchesRoom =
+        isInAnyRoom(map, segment.x1, segment.y1) || isInAnyRoom(map, segment.x2, segment.y2);
+      expect(touchesRoom).toBe(true);
+    }
+  });
+
+  it("finds a door edge via hasDoor for every entry returned by getDoorSegments", () => {
+    const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(11750) });
+    for (const segment of getDoorSegments(map)) {
+      expect(hasDoor(map, segment.x1, segment.y1, segment.x2, segment.y2)).toBe(true);
+    }
+  });
+
+  it("never marks an edge as both a wall and a door", () => {
+    const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(11000) });
+    for (const key of map.doors) {
+      expect(map.walls.has(key)).toBe(false);
+    }
+  });
+});
+
+describe("computeGrassTiles / isGrass", () => {
+  it("marks the entire outer ring as grass", () => {
+    const map = createOpenMap(6, 6);
+    map.grass = computeGrassTiles(map);
+
+    for (let x = 0; x < 6; x++) {
+      expect(isGrass(map, x, 0)).toBe(true);
+      expect(isGrass(map, x, 5)).toBe(true);
+    }
+    for (let y = 0; y < 6; y++) {
+      expect(isGrass(map, 0, y)).toBe(true);
+      expect(isGrass(map, 5, y)).toBe(true);
+    }
+  });
+
+  it("floods through fully open interior (no rooms in the way) all the way to the center", () => {
+    const map = createOpenMap(9, 9);
+    map.grass = computeGrassTiles(map);
+    expect(isGrass(map, 4, 4)).toBe(true);
+  });
+
+  it("never marks a room's own tiles as grass, even across many generated layouts", () => {
+    for (let seed = 0; seed < 5; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 14000) });
+      for (const room of map.rooms) {
+        for (let y = room.top; y < room.top + room.height; y++) {
+          for (let x = room.left; x < room.left + room.width; x++) {
+            expect(isGrass(map, x, y)).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it("marks non-room corridor tiles as grass several tiles deep, not just the ones directly touching the ring", () => {
+    let sawDeepGrass = false;
+    for (let seed = 0; seed < 10 && !sawDeepGrass; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 15000) });
+      for (let y = 2; y < map.height - 2 && !sawDeepGrass; y++) {
+        for (let x = 2; x < map.width - 2; x++) {
+          if (isInAnyRoom(map, x, y)) continue;
+          if (isGrass(map, x, y)) {
+            sawDeepGrass = true;
+            break;
+          }
+        }
+      }
+    }
+    expect(sawDeepGrass).toBe(true);
+  });
+
+  it("every grass tile is reachable from the ring by walking through open edges", () => {
+    for (let seed = 0; seed < 5; seed++) {
+      const map = generateMap(20, 16, { doorCount: 3, random: mulberry32(seed + 16000) });
+      const reachableFromRing = new Set(
+        getReachableTiles(map, { x: 0, y: 0 }).map((tile) => `${String(tile.x)},${String(tile.y)}`)
+      );
+      for (const key of map.grass) {
+        expect(reachableFromRing.has(key)).toBe(true);
+      }
+    }
+  });
+});
+
+describe("isInAnyRoom", () => {
+  it("reports true only for tiles within a placed room's footprint", () => {
+    const map = createOpenMap(10, 10);
+    map.rooms.push({ left: 2, top: 3, width: 2, height: 2 });
+
+    expect(isInAnyRoom(map, 2, 3)).toBe(true);
+    expect(isInAnyRoom(map, 3, 4)).toBe(true);
+    expect(isInAnyRoom(map, 4, 3)).toBe(false);
+    expect(isInAnyRoom(map, 1, 3)).toBe(false);
+  });
+
+  it("reflects every room placed by generateMap", () => {
+    const map = generateMap(20, 16, { doorCount: 2, random: mulberry32(12000) });
+    expect(map.rooms.length).toBeGreaterThan(0);
+    for (const room of map.rooms) {
+      expect(isInAnyRoom(map, room.left, room.top)).toBe(true);
+    }
   });
 });
 
@@ -352,50 +572,5 @@ describe("hasWall / canPass / isInBounds", () => {
     expect(isInBounds(map, map.width, 0)).toBe(false);
     expect(isInBounds(map, 0, map.height)).toBe(false);
     expect(canPass(map, 0, 0, -1, 0)).toBe(false);
-  });
-});
-
-describe("getDoorTiles", () => {
-  it.each([1, 2, 3, 5, 10])("finds exactly the requested number of doors (%i)", (doorCount) => {
-    const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount) });
-    expect(getDoorTiles(map)).toHaveLength(doorCount);
-  });
-
-  it("only reports border tiles as doors", () => {
-    const map = generateMap(20, 14, { doorCount: 5, random: mulberry32(42) });
-    for (const door of getDoorTiles(map)) {
-      const onBorder =
-        door.x === 0 || door.x === map.width - 1 || door.y === 0 || door.y === map.height - 1;
-      expect(onBorder).toBe(true);
-    }
-  });
-});
-
-describe("findReachableTiles", () => {
-  it("reaches every door from every other door", () => {
-    const map = generateMap(20, 14, { doorCount: 5, random: mulberry32(7) });
-    const doors = getDoorTiles(map);
-    expect(doors.length).toBeGreaterThan(1);
-
-    for (const door of doors) {
-      const reachable = findReachableTiles(map, door);
-      for (const other of doors) {
-        expect(reachable.has(`${String(other.x)},${String(other.y)}`)).toBe(true);
-      }
-    }
-  });
-
-  it("only contains tiles connected to the start by open edges", () => {
-    const map = generateMap(20, 14, { doorCount: 2, random: mulberry32(99) });
-    const door = getDoorTiles(map)[0];
-    if (!door) throw new Error("expected at least one door");
-
-    const reachable = findReachableTiles(map, door);
-    expect(reachable.has(`${String(door.x)},${String(door.y)}`)).toBe(true);
-
-    for (const key of reachable) {
-      const [xPart, yPart] = key.split(",");
-      expect(isInBounds(map, Number(xPart), Number(yPart))).toBe(true);
-    }
   });
 });

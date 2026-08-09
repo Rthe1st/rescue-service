@@ -3,10 +3,12 @@ import GUI from "lil-gui";
 import { DEFAULT_GRID_SIZE, createSettingsGui, gameSettings } from "./gameSettings";
 import {
   canPass,
-  findReachableTiles,
   generateMap,
-  getDoorTiles,
+  getDoorSegments,
+  getReachableTiles,
   getWallSegments,
+  isGrass,
+  isOuterRing,
   type GameMap,
   type WallSegment,
 } from "./mapGeneration";
@@ -19,7 +21,10 @@ const CONTROLS_GAP = 20;
 const BURN_PHASE_DURATION_MS = 1_000;
 
 const EMPTY_COLOR = 0xffffff;
+const OUTSIDE_COLOR = 0x2e7d32;
+const INACCESSIBLE_COLOR = 0x424242;
 const WALL_COLOR = 0x212121;
+const DOOR_COLOR = 0x795548;
 const PLAYER_COLOR = 0x000000;
 const FLAME_COLOR = 0xe53935;
 
@@ -96,6 +101,7 @@ export class GameScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private map!: GameMap;
   private providedMap: GameMap | undefined;
+  private accessibleTiles = new Set<string>();
 
   constructor() {
     super({ key: "GameScene" });
@@ -150,9 +156,10 @@ export class GameScene extends Phaser.Scene {
     this.settingsButton = settingsButton;
 
     this.applySettings();
-    this.map =
+    this.setMap(
       this.providedMap ??
-      generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount });
+        generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount })
+    );
     this.providedMap = undefined;
     this.startRound();
 
@@ -200,11 +207,28 @@ export class GameScene extends Phaser.Scene {
     this.igniteRandomFlame();
   }
 
+  // Always starts the player at a random tile on the outer ring - the edge of the map -
+  // which the ring/grass guarantee is always walkable and always connects to every room.
   private placePlayerAtStart(): void {
-    const doors = getDoorTiles(this.map);
-    const door = doors[Math.floor(Math.random() * doors.length)];
-    this.playerCol = door?.x ?? 0;
-    this.playerRow = door?.y ?? this.gridSize - 1;
+    const ringTiles: Array<{ x: number; y: number }> = [];
+    for (let y = 0; y < this.map.height; y++) {
+      for (let x = 0; x < this.map.width; x++) {
+        if (isOuterRing(this.map, x, y)) ringTiles.push({ x, y });
+      }
+    }
+    const tile = ringTiles[Math.floor(Math.random() * ringTiles.length)];
+    this.playerCol = tile?.x ?? 0;
+    this.playerRow = tile?.y ?? this.gridSize - 1;
+  }
+
+  // Records `map` and re-derives which tiles are reachable at all (so pockets cut off from
+  // the rest of the map render distinctly), from (0, 0) - always a ring tile, and every room
+  // is guaranteed to reach the ring during generation, so this reaches everything playable.
+  private setMap(map: GameMap): void {
+    this.map = map;
+    this.accessibleTiles = new Set(
+      getReachableTiles(map, { x: 0, y: 0 }).map((tile) => squareKey(tile.y, tile.x))
+    );
   }
 
   private setupDebugGui(): void {
@@ -216,7 +240,7 @@ export class GameScene extends Phaser.Scene {
         this.map.height !== this.gridSize ||
         this.doorCount !== previousDoorCount
       ) {
-        this.map = generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount });
+        this.setMap(generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount }));
         this.startRound();
       } else {
         this.playerRow = Math.min(this.playerRow, this.gridSize - 1);
@@ -341,9 +365,20 @@ export class GameScene extends Phaser.Scene {
     this.wallGraphics?.destroy();
     const graphics = this.add.graphics();
     const lineWidth = Math.max(3, Math.round(this.cellSize * 0.12));
-    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
 
+    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
     for (const segment of getWallSegments(this.map)) {
+      const line = wallSegmentToLine(
+        segment,
+        this.boardOffsetX,
+        this.boardOffsetY,
+        this.cellSize
+      );
+      graphics.lineBetween(line.x1, line.y1, line.x2, line.y2);
+    }
+
+    graphics.lineStyle(lineWidth, DOOR_COLOR, 1);
+    for (const segment of getDoorSegments(this.map)) {
       const line = wallSegmentToLine(
         segment,
         this.boardOffsetX,
@@ -359,6 +394,8 @@ export class GameScene extends Phaser.Scene {
   private squareFill(row: number, col: number): number {
     if (row === this.playerRow && col === this.playerCol) return PLAYER_COLOR;
     if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
+    if (!this.accessibleTiles.has(squareKey(row, col))) return INACCESSIBLE_COLOR;
+    if (isGrass(this.map, col, row)) return OUTSIDE_COLOR;
     return EMPTY_COLOR;
   }
 
@@ -552,19 +589,13 @@ export class GameScene extends Phaser.Scene {
     this.flames = next;
   }
 
+  // The player always starts on the ring, and every room/corridor is guaranteed reachable
+  // from the ring during generation, so `accessibleTiles` already is "reachable from the
+  // player" - reusing it here avoids a second reachability walk over the same map.
   private igniteRandomFlame(): void {
-    const reachable = findReachableTiles(this.map, {
-      x: this.playerCol,
-      y: this.playerRow,
-    });
-
-    const candidates: string[] = [];
-    for (const key of reachable) {
-      const [x, y] = parsePointKey(key);
-      if (x === this.playerCol && y === this.playerRow) continue;
-      candidates.push(squareKey(y, x));
-    }
-
+    const candidates = [...this.accessibleTiles].filter(
+      (key) => key !== squareKey(this.playerRow, this.playerCol)
+    );
     const choice = candidates[Math.floor(Math.random() * candidates.length)];
     if (!choice) return;
     this.flames = new Set([choice]);
@@ -605,11 +636,6 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
-}
-
-function parsePointKey(key: string): [number, number] {
-  const [xPart, yPart] = key.split(",");
-  return [Number(xPart), Number(yPart)];
 }
 
 function wallSegmentToLine(

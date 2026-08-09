@@ -3,6 +3,7 @@ import { gameSettings } from "./gameSettings";
 import {
   createOpenMap,
   generateMapSteps,
+  getDoorSegments,
   getWallSegments,
   type GameMap,
   type WallSegment,
@@ -22,6 +23,7 @@ const BUTTON_GAP = 20;
 
 const FLOOR_COLOR = 0xffffff;
 const WALL_COLOR = 0x212121;
+const DOOR_COLOR = 0x795548;
 
 export class MapPreviewScene extends Phaser.Scene {
   private map!: GameMap;
@@ -168,9 +170,20 @@ export class MapPreviewScene extends Phaser.Scene {
     this.wallGraphics?.destroy();
     const graphics = this.add.graphics();
     const lineWidth = Math.max(3, Math.round(this.cellSize * 0.12));
-    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
 
+    graphics.lineStyle(lineWidth, WALL_COLOR, 1);
     for (const segment of getWallSegments(this.map)) {
+      const line = wallSegmentToLine(
+        segment,
+        this.boardOffsetX,
+        this.boardOffsetY,
+        this.cellSize
+      );
+      graphics.lineBetween(line.x1, line.y1, line.x2, line.y2);
+    }
+
+    graphics.lineStyle(lineWidth, DOOR_COLOR, 1);
+    for (const segment of getDoorSegments(this.map)) {
       const line = wallSegmentToLine(
         segment,
         this.boardOffsetX,

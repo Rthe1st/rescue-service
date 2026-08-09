@@ -4,11 +4,23 @@
 // of the grid (using the coordinate one step beyond the border, e.g. (x, -1)
 // for the top edge of (x, 0)). This keeps walls as thin partitions between
 // tiles instead of tiles of their own, so rooms read as rooms rather than
-// tunnels through solid rock.
+// tunnels through solid rock. `doors` uses the same edge-key format as
+// `walls` but is disjoint from it: a door edge is always passable (never
+// also in `walls`), and records that the edge was deliberately carved open
+// during generation - as opposed to an edge that was simply never walled -
+// so callers can render it distinctly (e.g. a door-colored line rather than
+// no line at all). `rooms` is every room placed during generation, so
+// callers can tell room floor apart from incidental open corridor. `grass`
+// (point-key format, "x,y") is every tile reachable from the outer ring
+// without passing through a room - the outer ring plus any corridor that
+// connects to it - computed once generation finishes.
 export interface GameMap {
   width: number;
   height: number;
   walls: Set<string>;
+  doors: Set<string>;
+  rooms: Room[];
+  grass: Set<string>;
 }
 
 export interface Room {
@@ -26,7 +38,9 @@ export interface WallSegment {
 }
 
 export interface GenerateMapOptions {
-  /** Number of border wall segments turned into doors. Clamped to 1-10, defaults to 2. */
+  /** Number of room walls facing the outer ring turned into front doors. Clamped to 1-10,
+   * defaults to 2. Rooms not reachable via a front door are still connected to the network
+   * (and, transitively, the ring) by carving additional doors as needed. */
   doorCount?: number;
   /** Source of randomness, injectable for deterministic tests. Defaults to Math.random. */
   random?: () => number;
@@ -49,6 +63,10 @@ const MIN_ROOM_SIDE = 2;
 const MAX_ROOM_SIDE = 4;
 const ROOM_PLACEMENT_ATTEMPTS_PER_CELL = 4;
 
+// Rooms are kept this many tiles clear of the map edge, guaranteeing a walkable
+// ring around the entire outside of the building for the player to walk around.
+const OUTER_RING_THICKNESS = 1;
+
 const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [1, 0],
   [-1, 0],
@@ -59,6 +77,13 @@ const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
 export interface Point {
   x: number;
   y: number;
+}
+
+interface Bounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 export function generateMap(
@@ -93,11 +118,71 @@ export function* generateMapSteps(
   const map = createOpenMap(width, height);
   yield { map: cloneMap(map), description: `Open ${String(width)}x${String(height)} map` };
 
-  const rooms = yield* placeRoomsSteps(map, random);
-  const doors = yield* placeDoorsSteps(map, doorCount, random);
-  yield* connectRoomsSteps(map, rooms, doors);
+  const roomBounds = innerRoomBounds(width, height);
+  const rooms = yield* placeRoomsSteps(map, roomBounds, random);
+  yield* placeFrontDoorsSteps(map, doorCount, random);
+  yield* connectRoomsSteps(map, rooms);
 
+  map.grass = computeGrassTiles(map);
   return map;
+}
+
+// Every tile reachable from the outer ring by walking through open edges without ever
+// entering a room - the ring itself, plus any corridor connected to it. A front door lets
+// the flood fill reach a room's own doorway tile from outside, but `isInAnyRoom` stops it
+// from ever marking a room tile (or anything only reachable through one) as grass, so a
+// room stays room floor even where it opens directly onto the ring.
+export function computeGrassTiles(map: GameMap): Set<string> {
+  const grass = new Set<string>();
+  const queue: Point[] = [];
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (!isOuterRing(map, x, y)) continue;
+      const point = { x, y };
+      grass.add(pointKey(x, y));
+      queue.push(point);
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const point = queue[head];
+    head++;
+    if (!point) continue;
+
+    for (const [dx, dy] of ADJACENT_OFFSETS) {
+      const x = point.x + dx;
+      const y = point.y + dy;
+      const key = pointKey(x, y);
+      if (grass.has(key)) continue;
+      if (!canPass(map, point.x, point.y, x, y)) continue;
+      if (isInAnyRoom(map, x, y)) continue;
+
+      grass.add(key);
+      queue.push({ x, y });
+    }
+  }
+
+  return grass;
+}
+
+// The area rooms may occupy, inset from the map edge by `OUTER_RING_THICKNESS` on every
+// side so that ring is never built into and stays walkable all the way around. On a map too
+// small to fit both a ring and any room space, this collapses to an empty area (no rooms).
+function innerRoomBounds(width: number, height: number): Bounds {
+  return {
+    left: OUTER_RING_THICKNESS,
+    top: OUTER_RING_THICKNESS,
+    width: Math.max(0, width - OUTER_RING_THICKNESS * 2),
+    height: Math.max(0, height - OUTER_RING_THICKNESS * 2),
+  };
+}
+
+/** Whether (x, y) is part of the walkable ring reserved around the outside of the map. */
+export function isOuterRing(map: GameMap, x: number, y: number): boolean {
+  return x < OUTER_RING_THICKNESS || y < OUTER_RING_THICKNESS ||
+    x >= map.width - OUTER_RING_THICKNESS || y >= map.height - OUTER_RING_THICKNESS;
 }
 
 /** Runs a generator to completion, ignoring yielded steps, and returns its final value. */
@@ -108,7 +193,14 @@ function drain<T>(generator: Generator<unknown, T, void>): T {
 }
 
 function cloneMap(map: GameMap): GameMap {
-  return { width: map.width, height: map.height, walls: new Set(map.walls) };
+  return {
+    width: map.width,
+    height: map.height,
+    walls: new Set(map.walls),
+    doors: new Set(map.doors),
+    rooms: [...map.rooms],
+    grass: new Set(map.grass),
+  };
 }
 
 /** A map with every tile isolated: every interior and border edge starts walled. */
@@ -128,7 +220,7 @@ export function createBlankMap(width: number, height: number): GameMap {
     walls.add(wallKey(x, height - 1, x, height));
   }
 
-  return { width, height, walls };
+  return { width, height, walls, doors: new Set(), rooms: [], grass: new Set() };
 }
 
 /**
@@ -148,7 +240,7 @@ export function createOpenMap(width: number, height: number): GameMap {
     walls.add(wallKey(width - 1, y, width, y));
   }
 
-  return { width, height, walls };
+  return { width, height, walls, doors: new Set(), rooms: [], grass: new Set() };
 }
 
 function wallKey(x1: number, y1: number, x2: number, y2: number): string {
@@ -170,23 +262,49 @@ export function canPass(map: GameMap, x1: number, y1: number, x2: number, y2: nu
   return isInBounds(map, x1, y1) && isInBounds(map, x2, y2) && !hasWall(map, x1, y1, x2, y2);
 }
 
-/** Every border tile whose outward-facing wall has been opened into a doorway. */
-export function getDoorTiles(map: GameMap): Point[] {
-  const doors: Point[] = [];
-  for (let x = 1; x < map.width - 1; x++) {
-    if (!hasWall(map, x, 0, x, -1)) doors.push({ x, y: 0 });
-    if (!hasWall(map, x, map.height - 1, x, map.height)) doors.push({ x, y: map.height - 1 });
-  }
-  for (let y = 1; y < map.height - 1; y++) {
-    if (!hasWall(map, 0, y, -1, y)) doors.push({ x: 0, y });
-    if (!hasWall(map, map.width - 1, y, map.width, y)) doors.push({ x: map.width - 1, y });
-  }
-  return doors;
+export function getWallSegments(map: GameMap): WallSegment[] {
+  return segmentsFromKeys(map.walls);
 }
 
-/** Every tile reachable from `start` by walking through open (non-walled) edges only. */
-export function findReachableTiles(map: GameMap, start: Point): Set<string> {
+/** Whether the edge between two orthogonally-adjacent tiles is a door: passable, but marking
+ * a wall that was deliberately carved open during generation rather than never walled. */
+export function hasDoor(map: GameMap, x1: number, y1: number, x2: number, y2: number): boolean {
+  return map.doors.has(wallKey(x1, y1, x2, y2));
+}
+
+export function getDoorSegments(map: GameMap): WallSegment[] {
+  return segmentsFromKeys(map.doors);
+}
+
+function segmentsFromKeys(keys: Set<string>): WallSegment[] {
+  const segments: WallSegment[] = [];
+  for (const key of keys) {
+    const [a, b] = key.split("|");
+    if (!a || !b) continue;
+    const [x1, y1] = a.split(",").map(Number);
+    const [x2, y2] = b.split(",").map(Number);
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) continue;
+    segments.push({ x1, y1, x2, y2 });
+  }
+  return segments;
+}
+
+/** Whether (x, y) falls within any room placed during generation. */
+export function isInAnyRoom(map: GameMap, x: number, y: number): boolean {
+  return map.rooms.some(
+    (room) => x >= room.left && x < room.left + room.width && y >= room.top && y < room.top + room.height
+  );
+}
+
+/** Whether (x, y) is grass: the outer ring, or a non-room tile reachable from it. */
+export function isGrass(map: GameMap, x: number, y: number): boolean {
+  return map.grass.has(pointKey(x, y));
+}
+
+/** Every tile reachable from `start` by walking through open (wall-free) edges, including `start` itself. */
+export function getReachableTiles(map: GameMap, start: Point): Point[] {
   const visited = new Set<string>([pointKey(start.x, start.y)]);
+  const reachable: Point[] = [start];
   const queue: Point[] = [start];
 
   let head = 0;
@@ -198,29 +316,18 @@ export function findReachableTiles(map: GameMap, start: Point): Set<string> {
     for (const [dx, dy] of ADJACENT_OFFSETS) {
       const x = point.x + dx;
       const y = point.y + dy;
-      if (!canPass(map, point.x, point.y, x, y)) continue;
-
       const key = pointKey(x, y);
       if (visited.has(key)) continue;
+      if (!canPass(map, point.x, point.y, x, y)) continue;
+
       visited.add(key);
-      queue.push({ x, y });
+      const next = { x, y };
+      reachable.push(next);
+      queue.push(next);
     }
   }
 
-  return visited;
-}
-
-export function getWallSegments(map: GameMap): WallSegment[] {
-  const segments: WallSegment[] = [];
-  for (const key of map.walls) {
-    const [a, b] = key.split("|");
-    if (!a || !b) continue;
-    const [x1, y1] = a.split(",").map(Number);
-    const [x2, y2] = b.split(",").map(Number);
-    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) continue;
-    segments.push({ x1, y1, x2, y2 });
-  }
-  return segments;
+  return reachable;
 }
 
 // Randomly places non-overlapping rooms (2x1 up to 4x4, either orientation)
@@ -234,23 +341,29 @@ export function getWallSegments(map: GameMap): WallSegment[] {
 // already-placed room, so the floor plan grows outward as one connected building rather
 // than a scatter of disconnected rooms. Rooms may be positioned so they extend past the
 // map edge; they're cropped to fit before being placed.
-// Exported so tests can inspect room sizes/positions directly.
-export function placeRooms(map: GameMap, random: () => number): Room[] {
-  return drain(placeRoomsSteps(map, random));
+// Exported so tests can inspect room sizes/positions directly. `bounds` restricts where rooms
+// may be placed, defaulting to the entire map.
+export function placeRooms(
+  map: GameMap,
+  random: () => number,
+  bounds: Bounds = { left: 0, top: 0, width: map.width, height: map.height }
+): Room[] {
+  return drain(placeRoomsSteps(map, bounds, random));
 }
 
 function* placeRoomsSteps(
   map: GameMap,
+  bounds: Bounds,
   random: () => number
 ): Generator<GenerationStep, Room[], void> {
-  const rooms: Room[] = [];
-  const attempts = Math.max(50, map.width * map.height * ROOM_PLACEMENT_ATTEMPTS_PER_CELL);
+  const rooms = map.rooms;
+  const attempts = Math.max(50, bounds.width * bounds.height * ROOM_PLACEMENT_ATTEMPTS_PER_CELL);
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const room =
       rooms.length === 0
-        ? randomRoom(map.width, map.height, random)
-        : randomAdjacentRoom(map.width, map.height, rooms, random);
+        ? randomRoom(bounds, random)
+        : randomAdjacentRoom(bounds, rooms, random);
     if (!room) continue;
     if (roomOverlapsAny(room, rooms)) continue;
 
@@ -265,26 +378,21 @@ function* placeRoomsSteps(
   return rooms;
 }
 
-function randomRoom(
-  mapWidth: number,
-  mapHeight: number,
-  random: () => number
-): Room | undefined {
+function randomRoom(bounds: Bounds, random: () => number): Room | undefined {
   const roomWidth = randomRoomSide(random);
   const roomHeight = randomRoomSide(random);
 
-  const left = randomOffMapCoordinate(mapWidth, roomWidth, random);
-  const top = randomOffMapCoordinate(mapHeight, roomHeight, random);
+  const left = bounds.left + randomOffBoundsCoordinate(bounds.width, roomWidth, random);
+  const top = bounds.top + randomOffBoundsCoordinate(bounds.height, roomHeight, random);
 
-  return cropToMap({ left, top, width: roomWidth, height: roomHeight }, mapWidth, mapHeight);
+  return cropToBounds({ left, top, width: roomWidth, height: roomHeight }, bounds);
 }
 
 // Picks a room placed directly against a random side of a random already-placed room,
 // with a randomly chosen row/column of overlap along the shared edge so the two rooms are
 // guaranteed to share at least one tile-length of border.
 function randomAdjacentRoom(
-  mapWidth: number,
-  mapHeight: number,
+  bounds: Bounds,
   rooms: Room[],
   random: () => number
 ): Room | undefined {
@@ -307,23 +415,23 @@ function randomAdjacentRoom(
     left = overlapCol - Math.floor(random() * roomWidth);
   }
 
-  return cropToMap({ left, top, width: roomWidth, height: roomHeight }, mapWidth, mapHeight);
+  return cropToBounds({ left, top, width: roomWidth, height: roomHeight }, bounds);
 }
 
-// A coordinate anywhere in [-(size - 1), mapSize - 1], so the room may start partly off
-// either edge of the map.
-function randomOffMapCoordinate(mapSize: number, size: number, random: () => number): number {
-  return Math.floor(random() * (mapSize + size - 1)) - (size - 1);
+// A coordinate anywhere in [-(size - 1), boundsSize - 1] relative to the bounds' own origin,
+// so the room may start partly off either edge of the bounds.
+function randomOffBoundsCoordinate(boundsSize: number, size: number, random: () => number): number {
+  return Math.floor(random() * (boundsSize + size - 1)) - (size - 1);
 }
 
-// Cropping to the map bounds can shrink a room that started at or above MIN_ROOM_SIDE down
+// Cropping to the bounds can shrink a room that started at or above MIN_ROOM_SIDE down
 // to something thinner (e.g. a 2x3 room placed mostly off the edge); reject those rather
 // than placing a room narrower than MIN_ROOM_SIDE in either dimension.
-function cropToMap(rect: Room, mapWidth: number, mapHeight: number): Room | undefined {
-  const left = Math.max(0, rect.left);
-  const top = Math.max(0, rect.top);
-  const right = Math.min(mapWidth, rect.left + rect.width);
-  const bottom = Math.min(mapHeight, rect.top + rect.height);
+function cropToBounds(rect: Room, bounds: Bounds): Room | undefined {
+  const left = Math.max(bounds.left, rect.left);
+  const top = Math.max(bounds.top, rect.top);
+  const right = Math.min(bounds.left + bounds.width, rect.left + rect.width);
+  const bottom = Math.min(bounds.top + bounds.height, rect.top + rect.height);
   const width = right - left;
   const height = bottom - top;
   if (width < MIN_ROOM_SIDE || height < MIN_ROOM_SIDE) return undefined;
@@ -379,43 +487,57 @@ function isInsideRoom(room: Room, x: number, y: number): boolean {
   );
 }
 
-function* placeDoorsSteps(
+// Exported so tests can exercise front-door placement in isolation, without the doors
+// `connectRoomsSteps` may separately carve between a room and the ring when that happens to
+// be a room's cheapest route to the network.
+export function placeFrontDoors(map: GameMap, doorCount: number, random: () => number): void {
+  drain(placeFrontDoorsSteps(map, doorCount, random));
+}
+
+// Turns up to `doorCount` walls that separate a room from the outer ring into front doors -
+// direct entrances from outside straight into a room, rather than gaps in the ring's own
+// outer edge (which never led anywhere; the ring is already fully walkable). Rooms that
+// don't border the ring at all get no front door here; `connectRoomsSteps` still guarantees
+// every room reaches the network (and, transitively, the ring) some other way.
+function* placeFrontDoorsSteps(
   map: GameMap,
   doorCount: number,
   random: () => number
-): Generator<GenerationStep, Point[], void> {
-  const candidates: Point[] = [];
-  for (let x = 1; x < map.width - 1; x++) {
-    candidates.push({ x, y: 0 });
-    candidates.push({ x, y: map.height - 1 });
-  }
-  for (let y = 1; y < map.height - 1; y++) {
-    candidates.push({ x: 0, y });
-    candidates.push({ x: map.width - 1, y });
-  }
-
+): Generator<GenerationStep, void, void> {
+  const candidates = roomToRingWallEdges(map);
   shuffle(candidates, random);
 
-  const doors = candidates.slice(0, Math.min(doorCount, candidates.length));
-  for (const door of doors) {
-    map.walls.delete(borderWallKey(door.x, door.y, map.width, map.height));
+  const chosen = candidates.slice(0, Math.min(doorCount, candidates.length));
+  for (const edge of chosen) {
+    const key = wallKey(edge.x1, edge.y1, edge.x2, edge.y2);
+    map.walls.delete(key);
+    map.doors.add(key);
     yield {
       map: cloneMap(map),
-      description: `Opened door at (${String(door.x)}, ${String(door.y)})`,
+      description: `Opened front door between (${String(edge.x1)}, ${String(edge.y1)}) and (${String(edge.x2)}, ${String(edge.y2)})`,
     };
   }
-
-  return doors;
 }
 
-function borderWallKey(x: number, y: number, width: number, height: number): string {
-  if (y === 0) return wallKey(x, 0, x, -1);
-  if (y === height - 1) return wallKey(x, height - 1, x, height);
-  if (x === 0) return wallKey(0, y, -1, y);
-  return wallKey(width - 1, y, width, y);
+function roomToRingWallEdges(map: GameMap): WallSegment[] {
+  const edges: WallSegment[] = [];
+  for (const room of map.rooms) {
+    for (let y = room.top; y < room.top + room.height; y++) {
+      for (let x = room.left; x < room.left + room.width; x++) {
+        for (const [dx, dy] of ADJACENT_OFFSETS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (!isInBounds(map, nx, ny)) continue;
+          if (!isOuterRing(map, nx, ny)) continue;
+          edges.push({ x1: x, y1: y, x2: nx, y2: ny });
+        }
+      }
+    }
+  }
+  return edges;
 }
 
-function shuffle(items: Point[], random: () => number): void {
+function shuffle(items: WallSegment[], random: () => number): void {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     const a = items[i];
@@ -426,19 +548,17 @@ function shuffle(items: Point[], random: () => number): void {
   }
 }
 
-// Merges every disconnected "significant" region (each room, each door tile)
-// into a single connected component, so any door can reach every room by
-// walking through opened edges only. Every enclosed room starts as its own
-// isolated component (sealed off by `encloseRoom`); the open floor between
-// rooms is already one connected mass since interior edges start open, so
-// this carves exactly one entryway through the cheapest wall of each room
-// (usually a single edge, since rooms are placed touching existing floor)
-// rather than needing to tunnel long corridors through solid rock.
-function* connectRoomsSteps(
-  map: GameMap,
-  rooms: Room[],
-  doors: Point[]
-): Generator<GenerationStep, void, void> {
+// Merges every disconnected "significant" region (each room, plus a single anchor point on
+// the outer ring standing in for "the outside") into a single connected component, so every
+// room reaches every other room - and, transitively, the ring - by walking through opened
+// edges only. Every enclosed room starts as its own isolated component (sealed off by
+// `encloseRoom`); the open floor between rooms (and the ring itself) is already one connected
+// mass since interior edges start open, so this carves exactly one entryway through the
+// cheapest wall of each room still isolated after front doors were placed (usually a single
+// edge, since rooms are placed touching existing floor) rather than needing to tunnel long
+// corridors through solid rock. (0, 0) is always a ring tile, since the ring is at least
+// `OUTER_RING_THICKNESS` deep on every side of any non-empty map.
+function* connectRoomsSteps(map: GameMap, rooms: Room[]): Generator<GenerationStep, void, void> {
   const significant = new Set<string>();
   for (const room of rooms) {
     for (let y = room.top; y < room.top + room.height; y++) {
@@ -447,9 +567,7 @@ function* connectRoomsSteps(
       }
     }
   }
-  for (const door of doors) significant.add(pointKey(door.x, door.y));
-
-  if (significant.size === 0) return;
+  significant.add(pointKey(0, 0));
 
   const maxMerges = map.width * map.height;
   for (let merges = 0; merges < maxMerges; merges++) {
@@ -622,11 +740,17 @@ function* carveShortestPathToOtherComponentSteps(
     const point: Point = cursor;
     const parentPoint: Point | null = parent[point.y]?.[point.x] ?? null;
     if (parentPoint) {
-      map.walls.delete(wallKey(point.x, point.y, parentPoint.x, parentPoint.y));
-      yield {
-        map: cloneMap(map),
-        description: `Opened wall between (${String(point.x)}, ${String(point.y)}) and (${String(parentPoint.x)}, ${String(parentPoint.y)})`,
-      };
+      const key = wallKey(point.x, point.y, parentPoint.x, parentPoint.y);
+      // The path may pass through edges that were already open (cost 0) on its way to the
+      // one that actually needs carving; only an edge that really had a wall becomes a door.
+      if (map.walls.has(key)) {
+        map.walls.delete(key);
+        map.doors.add(key);
+        yield {
+          map: cloneMap(map),
+          description: `Opened door between (${String(point.x)}, ${String(point.y)}) and (${String(parentPoint.x)}, ${String(parentPoint.y)})`,
+        };
+      }
     }
     cursor = parentPoint;
   }
