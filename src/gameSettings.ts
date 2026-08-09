@@ -1,4 +1,5 @@
 import GUI from "lil-gui";
+import { DEFAULT_DOOR_COUNT, MAX_DOOR_COUNT, MIN_DOOR_COUNT } from "./mapGeneration";
 
 export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
@@ -20,6 +21,7 @@ export interface GameParams {
   spreadDirections: number;
   editMapsBeforePlay: boolean;
   generationStepDelayMs: number;
+  doorCount: number;
 }
 
 export const gameSettings: GameParams = {
@@ -31,6 +33,7 @@ export const gameSettings: GameParams = {
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
   generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
+  doorCount: DEFAULT_DOOR_COUNT,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -44,7 +47,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number" &&
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
-    typeof candidate["generationStepDelayMs"] === "number"
+    typeof candidate["generationStepDelayMs"] === "number" &&
+    typeof candidate["doorCount"] === "number"
   );
 }
 
@@ -106,6 +110,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "generationStepDelayMs", 1, 300, 1)
     .name("Map generation step delay (ms)")
     .onChange(() => onChange?.());
+  const doorCountController = gui
+    .add(gameSettings, "doorCount", MIN_DOOR_COUNT, MAX_DOOR_COUNT, 1)
+    .name("Number of doors")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -122,6 +130,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.spreadDirections = preset.spreadDirections;
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
     gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
+    gameSettings.doorCount = preset.doorCount;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -130,6 +139,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     spreadDirectionsController.updateDisplay();
     editMapsBeforePlayController.updateDisplay();
     generationStepDelayController.updateDisplay();
+    doorCountController.updateDisplay();
 
     onChange?.();
   };
