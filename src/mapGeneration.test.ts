@@ -6,7 +6,9 @@ import {
   canPass,
   createBlankMap,
   createOpenMap,
+  findReachableTiles,
   generateMap,
+  getDoorTiles,
   hasWall,
   isInBounds,
   placeRooms,
@@ -350,5 +352,50 @@ describe("hasWall / canPass / isInBounds", () => {
     expect(isInBounds(map, map.width, 0)).toBe(false);
     expect(isInBounds(map, 0, map.height)).toBe(false);
     expect(canPass(map, 0, 0, -1, 0)).toBe(false);
+  });
+});
+
+describe("getDoorTiles", () => {
+  it.each([1, 2, 3, 5, 10])("finds exactly the requested number of doors (%i)", (doorCount) => {
+    const map = generateMap(30, 20, { doorCount, random: mulberry32(doorCount) });
+    expect(getDoorTiles(map)).toHaveLength(doorCount);
+  });
+
+  it("only reports border tiles as doors", () => {
+    const map = generateMap(20, 14, { doorCount: 5, random: mulberry32(42) });
+    for (const door of getDoorTiles(map)) {
+      const onBorder =
+        door.x === 0 || door.x === map.width - 1 || door.y === 0 || door.y === map.height - 1;
+      expect(onBorder).toBe(true);
+    }
+  });
+});
+
+describe("findReachableTiles", () => {
+  it("reaches every door from every other door", () => {
+    const map = generateMap(20, 14, { doorCount: 5, random: mulberry32(7) });
+    const doors = getDoorTiles(map);
+    expect(doors.length).toBeGreaterThan(1);
+
+    for (const door of doors) {
+      const reachable = findReachableTiles(map, door);
+      for (const other of doors) {
+        expect(reachable.has(`${String(other.x)},${String(other.y)}`)).toBe(true);
+      }
+    }
+  });
+
+  it("only contains tiles connected to the start by open edges", () => {
+    const map = generateMap(20, 14, { doorCount: 2, random: mulberry32(99) });
+    const door = getDoorTiles(map)[0];
+    if (!door) throw new Error("expected at least one door");
+
+    const reachable = findReachableTiles(map, door);
+    expect(reachable.has(`${String(door.x)},${String(door.y)}`)).toBe(true);
+
+    for (const key of reachable) {
+      const [xPart, yPart] = key.split(",");
+      expect(isInBounds(map, Number(xPart), Number(yPart))).toBe(true);
+    }
   });
 });

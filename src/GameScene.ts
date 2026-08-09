@@ -3,7 +3,9 @@ import GUI from "lil-gui";
 import { DEFAULT_GRID_SIZE, createSettingsGui, gameSettings } from "./gameSettings";
 import {
   canPass,
+  findReachableTiles,
   generateMap,
+  getDoorTiles,
   getWallSegments,
   type GameMap,
   type WallSegment,
@@ -195,8 +197,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private placePlayerAtStart(): void {
-    this.playerRow = this.gridSize - 1;
-    this.playerCol = 0;
+    const doors = getDoorTiles(this.map);
+    const door = doors[Math.floor(Math.random() * doors.length)];
+    this.playerCol = door?.x ?? 0;
+    this.playerRow = door?.y ?? this.gridSize - 1;
   }
 
   private setupDebugGui(): void {
@@ -540,12 +544,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private igniteRandomFlame(): void {
+    const reachable = findReachableTiles(this.map, {
+      x: this.playerCol,
+      y: this.playerRow,
+    });
+
     const candidates: string[] = [];
-    for (let row = 0; row < this.gridSize; row++) {
-      for (let col = 0; col < this.gridSize; col++) {
-        if (row === this.playerRow && col === this.playerCol) continue;
-        candidates.push(squareKey(row, col));
-      }
+    for (const key of reachable) {
+      const [x, y] = parsePointKey(key);
+      if (x === this.playerCol && y === this.playerRow) continue;
+      candidates.push(squareKey(y, x));
     }
 
     const choice = candidates[Math.floor(Math.random() * candidates.length)];
@@ -588,6 +596,11 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
+}
+
+function parsePointKey(key: string): [number, number] {
+  const [xPart, yPart] = key.split(",");
+  return [Number(xPart), Number(yPart)];
 }
 
 function wallSegmentToLine(
