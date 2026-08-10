@@ -108,14 +108,21 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   straight line, stopping at the first wall, and extinguishing only the first (nearest)
   flame found along the way rather than every flame on the line.
 - Fog of war, when `fogOfWarEnabled`, changes what `squareFill` returns for a tile instead
-  of changing the tile set itself: `updateVisibility` (called at the top of every `layout()`
-  and, on the movement fast path, right before `movePlayer` re-renders squares) recomputes
-  `visibleTiles` from `computeVisibleTilesForAll` and updates `memorizedRoomKeys`/
-  `roomFlameSnapshots` (see **Fog of war** in `glossary.md`); `squareFill` then falls back
-  from live rendering to memorized rendering to `FOG_COLOR` per tile. Because `movePlayer`
-  otherwise only re-renders the two tiles a player left/entered, it has to fall back to
-  `refreshAllSquareFills()` (every square, not just those two) whenever fog of war is on,
-  since a single step can reveal or hide an entire room or corridor's line of sight.
+  of changing the tile set itself. Two separate steps drive it, split because they run on
+  different triggers: `refreshVisibleTiles` (called at the top of every `layout()`, and, on
+  the movement fast path, right before `movePlayer` re-renders squares) recomputes
+  `visibleTiles` from `computeVisibleTilesForAll`; `recordVisibilityForMemory` (called only
+  when a player character's position actually changes - a move, including the round's
+  starting positions) pushes that visibility, plus a snapshot of which of those tiles are
+  currently on fire, onto `visibilityHistory`, trimmed to the last `fogOfWarMemoryMoves`
+  entries (see **Fog of war** in `glossary.md`). Splitting them this way means a `layout()`
+  triggered by something other than a move - a resize, a phase transition - still re-renders
+  correctly without also consuming a slot in the fixed-size move-memory window.
+  `squareFill` falls back from live rendering, to `findMemory`'s memorized rendering, to
+  `FOG_COLOR`, per tile. Because `movePlayer` otherwise only re-renders the two tiles a
+  player left/entered, it has to fall back to `refreshAllSquareFills()` (every square, not
+  just those two) whenever fog of war is on, since a single step can reveal or hide many
+  tiles' worth of line of sight at once.
 
 ## Settings
 

@@ -102,20 +102,23 @@ where it isn't obvious, how it's represented in code.
   settings mid-game, starts a new round on a newly generated map.
 - **Fog of war** — when `fogOfWarEnabled`, tiles are only rendered with their true state if
   currently *visible*: every tile of the room a player character is standing in, plus a
-  straight line of sight out through every door of that room (or, for a player not
-  currently in a room, a straight line of sight in each of the 4 cardinal directions from
-  their own tile) — see `computeVisibleTiles`/`computeVisibleTilesForAll` in
-  `src/visibility.ts`, which multiple player characters combine by union. Everything else
-  is either **memorized** or **fogged**:
-  - A room is memorized once a player character has stood in it, and stays memorized (its
-    tiles rendered instead of greyed out) for the `fogOfWarMemoryRooms` most-recently-left
-    rooms (`GameScene.memorizedRoomKeys`, a most-recent-last list capped at that setting;
-    0 means no memory at all). Without `fogOfWarStaticMemory`, a memorized room still
-    shows its true, live state (e.g. fire that has since spread into it). With
-    `fogOfWarStaticMemory` on, a memorized room instead renders a frozen snapshot of its
-    fire tiles from the moment the last player character standing in it left
-    (`GameScene.roomFlameSnapshots`, taken in `updateVisibility`), unchanged until a
-    player character can see it again.
+  straight line of sight out through every door of that room; or, for a player character not
+  currently in a room, every tile anywhere on the map with a clear, unobstructed line of
+  sight from their own tile - not just the 4 cardinal directions, since standing outdoors is
+  open ground rather than a corridor (see `computeVisibleTiles`/`computeVisibleTilesForAll`
+  in `src/visibility.ts`, which multiple player characters combine by union). Everything
+  else is either **memorized** or **fogged**:
+  - Every move (a player character's position changing, including the round's starting
+    positions as "move zero") records a snapshot of what was visible at that moment -
+    `GameScene.visibilityHistory`, capped at the `fogOfWarMemoryMoves` most recent moves (0
+    means no memory: a tile fogs over again the instant it's no longer directly visible).
+    A tile is memorized if any remembered snapshot saw it, regardless of which room (or no
+    room) it belongs to - fog of war has no special awareness of rooms beyond how they
+    shape what `computeVisibleTiles` reveals. Without `fogOfWarStaticMemory`, a memorized
+    tile still shows its true, live state (e.g. fire that has since spread there). With
+    `fogOfWarStaticMemory` on, a memorized tile instead renders whatever the *most recent*
+    remembered snapshot saw there - frozen until a player character can see it again, which
+    both re-reveals it live and starts a fresh snapshot going forward.
   - Any tile that's neither currently visible nor memorized is fogged: rendered as a
     light grey (`FOG_COLOR`) regardless of what's actually there.
   Walls and doors are always drawn regardless of fog, since they're part of the building's
@@ -172,12 +175,12 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`hoseCount`** ("Number of hoses") — how many fire hoses (0-10) are placed on the map
   each round; see **Fire hose** above.
 - **`fogOfWarEnabled`** ("Fog of war") — whether tiles outside a player character's current
-  visibility and room memory render fogged instead of their true state; see **Fog of war**
+  visibility and move memory render fogged instead of their true state; see **Fog of war**
   above.
-- **`fogOfWarMemoryRooms`** ("Fog of war memory (rooms)") — how many most-recently-left
-  rooms stay memorized instead of immediately fogging over again; clamped to 0–20
-  (`MIN_FOG_OF_WAR_MEMORY_ROOMS`/`MAX_FOG_OF_WAR_MEMORY_ROOMS`), defaulting to
-  `DEFAULT_FOG_OF_WAR_MEMORY_ROOMS` (0, no memory); see **Fog of war** above.
+- **`fogOfWarMemoryMoves`** ("Fog of war memory (moves)") — how many of the most recent
+  moves stay memorized instead of immediately fogging over again; clamped to 0–20
+  (`MIN_FOG_OF_WAR_MEMORY_MOVES`/`MAX_FOG_OF_WAR_MEMORY_MOVES`), defaulting to
+  `DEFAULT_FOG_OF_WAR_MEMORY_MOVES` (0, no memory); see **Fog of war** above.
 - **`fogOfWarStaticMemory`** ("Fog of war static memory") — whether a memorized-but-not-
-  currently-visible room renders a frozen snapshot of its last-seen fire state instead of
+  currently-visible tile renders a frozen snapshot of its last-seen fire state instead of
   its true, live state; see **Fog of war** above.
