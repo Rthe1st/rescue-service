@@ -88,18 +88,22 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   its passable neighbors.
 - Both moving onto a flame and a flame spreading onto the player's tile call `endGame()`,
   which freezes the round and shows the game-over status text.
-- The fire hose (`GameScene.hose`, `{ path, carriedBy }`) is placed once per round
-  (`placeHoseAtStart`) and otherwise only changes in response to the hose button
-  (`toggleHoseCarry`, only ever offered for `path`'s last tile - its loose end, since
-  `path[0]` is a fixed anchor once placed) and, while carried, `movePlayer` calling
-  `extendOrRetractHose` before committing each move - growing or shrinking `hose.path`,
-  capped at the `maxHoseLength` setting, rather than living on the map data itself, so it's
-  drawn as an overlay (`drawHose`) independent of tile rendering.
-- Spraying (`sprayHose`) is an alternate turn action, only reachable while carrying the
+- Fire hoses (`GameScene.hoses`, an array of `{ path, carriedBy }`) are placed once per
+  round (`placeHosesAtStart`, `hoseCount` of them on distinct outer-ring tiles) and
+  otherwise only change in response to the hose button (`toggleHoseCarry`, only ever
+  offered for a hose whose `path`'s last tile - its loose end, since `path[0]` is a fixed
+  anchor once placed - matches the active player's tile and isn't already carried by
+  someone else; `carriedHose` looks up which hose, if any, a player is carrying) and,
+  while carried, `movePlayer` calling `extendOrRetractHose` before committing each move -
+  growing or shrinking that hose's `path`, capped at the `maxHoseLength` setting, rather
+  than living on the map data itself, so hoses are drawn as an overlay (`drawHoses`)
+  independent of tile rendering.
+- Spraying (`sprayHose`) is an alternate turn action, only reachable while carrying a
   hose: the spray button arms `sprayArmed` without ending the turn, and the direction
   buttons check that flag (`createControls`'s pointerdown handler) to route to `sprayHose`
   instead of `movePlayer` - walking up to `hoseSprayRange` tiles from the player in a
-  straight line, stopping at the first wall, and clearing any flame found along the way.
+  straight line, stopping at the first wall, and extinguishing only the first (nearest)
+  flame found along the way rather than every flame on the line.
 
 ## Settings
 
