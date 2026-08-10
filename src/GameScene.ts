@@ -33,6 +33,11 @@ const ACTIVE_PLAYER_BORDER_COLOR = 0xffeb3b;
 const ACTIVE_PLAYER_BORDER_WIDTH = 3;
 const PLAYER_CIRCLE_SIZE_RATIO = 0.8;
 
+const MAX_HOSE_LENGTH = 10;
+const HOSE_COLOR = 0xd32f2f;
+const HOSE_LINE_WIDTH_RATIO = 0.2;
+const HOSE_END_MARKER_RADIUS_RATIO = 0.15;
+
 const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [-1, 0],
   [1, 0],
@@ -76,6 +81,23 @@ interface Player {
   col: number;
 }
 
+interface HoseTile {
+  row: number;
+  col: number;
+}
+
+// The hose is a path of tiles, ordered from its fixed/anchor end to its loose end. While
+// `carriedBy` is set, the loose end (the last entry) is the one that moves with that
+// player. `path.length` is always at least 1 - it never has zero tiles.
+interface HoseState {
+  path: HoseTile[];
+  carriedBy: number | null;
+}
+
+function sameTile(a: HoseTile, b: HoseTile): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
 export interface ElementBounds {
   x: number;
   y: number;
@@ -116,6 +138,9 @@ export class GameScene extends Phaser.Scene {
   private map!: GameMap;
   private providedMap: GameMap | undefined;
   private accessibleTiles = new Set<string>();
+  private hose!: HoseState;
+  private hoseGraphics: Phaser.GameObjects.Graphics | undefined;
+  private hoseButton: Phaser.GameObjects.Text | undefined;
 
   constructor() {
     super({ key: "GameScene" });
@@ -220,6 +245,7 @@ export class GameScene extends Phaser.Scene {
 
   private startRound(): void {
     this.placePlayersAtStart();
+    this.placeHoseAtStart();
     this.phase = "firefighting";
     this.phaseTimerMs = this.firefightingDurationMs;
     this.gameOver = false;
@@ -281,6 +307,36 @@ export class GameScene extends Phaser.Scene {
     }
 
     return positions;
+  }
+
+  // The hose always starts on a single tile on the outer ring ("a green square at the
+  // edge of the map"), same rule as the single-player start tile, but never on a tile a
+  // player character already occupies.
+  private placeHoseAtStart(): void {
+    const occupied = new Set(
+      this.players.map((player) => squareKey(player.row, player.col))
+    );
+
+    const ringTiles: Array<{ x: number; y: number }> = [];
+    for (let y = 0; y < this.map.height; y++) {
+      for (let x = 0; x < this.map.width; x++) {
+        if (isOuterRing(this.map, x, y) && !occupied.has(squareKey(y, x))) {
+          ringTiles.push({ x, y });
+        }
+      }
+    }
+
+    let choice = shuffleArray(ringTiles)[0];
+    if (!choice) {
+      for (const key of shuffleArray([...this.accessibleTiles])) {
+        if (occupied.has(key)) continue;
+        const [row, col] = parseSquareKey(key);
+        choice = { x: col, y: row };
+        break;
+      }
+    }
+
+    this.hose = { path: [{ row: choice?.y ?? 0, col: choice?.x ?? 0 }], carriedBy: null };
   }
 
   // Records `map` and re-derives which tiles are reachable at all (so pockets cut off from
@@ -347,6 +403,8 @@ export class GameScene extends Phaser.Scene {
     this.squares.clear();
     for (const button of this.controlButtons) button.destroy();
     this.controlButtons = [];
+    this.hoseButton?.destroy();
+    this.hoseButton = undefined;
 
     const { width, height } = this.scale;
     this.timerText.setX(width / 2);
@@ -407,9 +465,11 @@ export class GameScene extends Phaser.Scene {
 
     this.createBoard();
     this.drawWalls();
+    this.drawHose();
     this.createPlayerMarkers();
     this.createPlayerLabels();
     this.createControls(controlsCenterX, controlsCenterY);
+    this.createHoseButton(controlsCenterX, controlsCenterY);
   }
 
   private createBoard(): void {
@@ -459,6 +519,40 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.wallGraphics = graphics;
+  }
+
+  // Draws the hose as a thick red line through the tile centers of every tile it
+  // occupies, plus a small marker on its loose end (`path`'s last tile) so a single-tile
+  // hose that hasn't been carried anywhere yet is still visible to pick up.
+  private drawHose(): void {
+    this.hoseGraphics?.destroy();
+    const graphics = this.add.graphics();
+
+    const centerOf = (tile: HoseTile): { x: number; y: number } => ({
+      x: this.boardOffsetX + tile.col * this.cellSize + this.cellSize / 2,
+      y: this.boardOffsetY + tile.row * this.cellSize + this.cellSize / 2,
+    });
+
+    if (this.hose.path.length >= 2) {
+      const lineWidth = Math.max(3, Math.round(this.cellSize * HOSE_LINE_WIDTH_RATIO));
+      graphics.lineStyle(lineWidth, HOSE_COLOR, 1);
+      const points = this.hose.path.map(centerOf);
+      for (let i = 0; i < points.length - 1; i++) {
+        const from = points[i];
+        const to = points[i + 1];
+        if (!from || !to) continue;
+        graphics.lineBetween(from.x, from.y, to.x, to.y);
+      }
+    }
+
+    const looseEnd = this.hose.path[this.hose.path.length - 1];
+    if (looseEnd) {
+      const { x, y } = centerOf(looseEnd);
+      graphics.fillStyle(HOSE_COLOR, 1);
+      graphics.fillCircle(x, y, this.cellSize * HOSE_END_MARKER_RADIUS_RATIO);
+    }
+
+    this.hoseGraphics = graphics;
   }
 
   private squareFill(row: number, col: number): number {
@@ -613,10 +707,108 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Placed at the center of the D-pad cluster, so picking up/dropping the hose reads as
+  // just another part of the movement controls.
+  private createHoseButton(centerX: number, centerY: number): void {
+    const padding = {
+      x: Math.round(this.buttonFontSize * (10 / 24)),
+      y: Math.round(this.buttonFontSize * (6 / 24)),
+    };
+
+    const button = this.add
+      .text(centerX, centerY, "", {
+        fontSize: `${String(Math.round(this.buttonFontSize * 0.6))}px`,
+        color: "#ffffff",
+        backgroundColor: "#6d4c41",
+        padding,
+        align: "center",
+      })
+      .setOrigin(0.5);
+
+    button.on("pointerdown", () => {
+      this.toggleHoseCarry();
+    });
+    button.on("pointerover", () => {
+      if (this.hoseAction()) button.setStyle({ backgroundColor: "#8d6e63" });
+    });
+    button.on("pointerout", () => {
+      button.setStyle({ backgroundColor: "#6d4c41" });
+    });
+
+    this.hoseButton = button;
+    this.updateHoseButton();
+  }
+
+  // What the active player could do with the hose right now, if anything - drives both
+  // the hose button's label/availability and what a click on it actually does.
+  private hoseAction(): "pickup" | "drop" | null {
+    if (!this.canMove()) return null;
+    const player = this.players[this.activePlayerIndex];
+    if (!player) return null;
+
+    if (this.hose.carriedBy === this.activePlayerIndex) return "drop";
+    if (this.hose.carriedBy !== null) return null;
+
+    const path = this.hose.path;
+    const anchor = path[0];
+    const looseEnd = path[path.length - 1];
+    const onEnd =
+      (anchor && sameTile(anchor, player)) || (looseEnd && sameTile(looseEnd, player));
+    return onEnd ? "pickup" : null;
+  }
+
+  private updateHoseButton(): void {
+    const button = this.hoseButton;
+    if (!button) return;
+
+    const action = this.hoseAction();
+    button.setText(action === "drop" ? "Drop\nhose" : "Pick up\nhose");
+    button.setAlpha(action ? 1 : 0.4);
+    if (action) button.setInteractive({ useHandCursor: true });
+    else button.disableInteractive();
+  }
+
+  private toggleHoseCarry(): void {
+    const action = this.hoseAction();
+    const player = this.players[this.activePlayerIndex];
+    if (!action || !player) return;
+
+    if (action === "pickup") {
+      const path = this.hose.path;
+      const anchor = path[0];
+      // Normalize so the carried end is always `path`'s last entry, regardless of which
+      // physical end of the (possibly already-laid-out) hose the player picked up from.
+      if (path.length > 1 && anchor && sameTile(anchor, player)) path.reverse();
+      this.hose.carriedBy = this.activePlayerIndex;
+    } else {
+      this.hose.carriedBy = null;
+    }
+
+    this.updateHoseButton();
+    this.drawHose();
+  }
+
+  // Called only while the active player is carrying the hose, before their move is
+  // otherwise committed. Returns whether the move is allowed: growing the hose past
+  // `MAX_HOSE_LENGTH` is blocked, but retracting it - stepping back onto the tile the
+  // hose's loose end just came from - is always allowed, even at max length.
+  private extendOrRetractHose(row: number, col: number): boolean {
+    const path = this.hose.path;
+    const previous = path[path.length - 2];
+    if (previous && previous.row === row && previous.col === col) {
+      path.pop();
+      return true;
+    }
+    if (path.length >= MAX_HOSE_LENGTH) return false;
+    path.push({ row, col });
+    return true;
+  }
+
   getTestBounds(): Record<string, ElementBounds> {
     const bounds: Record<string, ElementBounds> = {
       endGameButton: rectFromBounds(this.endGameButton),
       settingsButton: rectFromBounds(this.settingsButton),
+      hoseButton: rectFromBounds(this.hoseButton),
       board: {
         x: this.boardOffsetX,
         y: this.boardOffsetY,
@@ -651,6 +843,10 @@ export class GameScene extends Phaser.Scene {
     );
     if (occupiedByOther) return;
 
+    if (this.hose.carriedBy === this.activePlayerIndex) {
+      if (!this.extendOrRetractHose(row, col)) return;
+    }
+
     const previousRow = player.row;
     const previousCol = player.col;
     player.row = row;
@@ -665,6 +861,7 @@ export class GameScene extends Phaser.Scene {
     const markerY = this.boardOffsetY + row * this.cellSize + this.cellSize / 2;
     this.playerMarkers.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
     this.playerLabels.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
+    this.drawHose();
 
     if (this.isAnyPlayerOnFlame()) {
       this.endGame();
@@ -674,6 +871,7 @@ export class GameScene extends Phaser.Scene {
     this.activePlayerIndex = (this.activePlayerIndex + 1) % this.players.length;
     this.updateTurnOrderText();
     this.updateActivePlayerBorder();
+    this.updateHoseButton();
   }
 
   private getSquare(row: number, col: number): Phaser.GameObjects.Rectangle {
