@@ -10,9 +10,11 @@ import {
   isGrass,
   isOuterRing,
   type GameMap,
+  type Room,
   type WallSegment,
 } from "./mapGeneration";
 import { generatePlayerNames } from "./playerNames";
+import { computeVisibleTilesForAll, roomAt } from "./visibility";
 
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 104;
@@ -25,6 +27,7 @@ const BURN_PHASE_DURATION_MS = 1_000;
 const EMPTY_COLOR = 0xffffff;
 const OUTSIDE_COLOR = 0x2e7d32;
 const INACCESSIBLE_COLOR = 0x424242;
+const FOG_COLOR = 0xbdbdbd;
 const WALL_COLOR = 0x212121;
 const DOOR_COLOR = 0x795548;
 const PLAYER_COLOR = 0x000000;
@@ -147,6 +150,14 @@ export class GameScene extends Phaser.Scene {
   private maxHoseLength = gameSettings.maxHoseLength;
   private hoseSprayRange = gameSettings.hoseSprayRange;
   private hoseCount = gameSettings.hoseCount;
+  private fogOfWarEnabled = gameSettings.fogOfWarEnabled;
+  private fogOfWarMemoryRooms = gameSettings.fogOfWarMemoryRooms;
+  private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
+  private roomsByKey = new Map<string, Room>();
+  private visibleTiles = new Set<string>();
+  private currentRoomKeys = new Set<string>();
+  private memorizedRoomKeys: string[] = [];
+  private roomFlameSnapshots = new Map<string, Set<string>>();
 
   constructor() {
     super({ key: "GameScene" });
@@ -271,6 +282,9 @@ export class GameScene extends Phaser.Scene {
     this.maxHoseLength = gameSettings.maxHoseLength;
     this.hoseSprayRange = gameSettings.hoseSprayRange;
     this.hoseCount = gameSettings.hoseCount;
+    this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
+    this.fogOfWarMemoryRooms = gameSettings.fogOfWarMemoryRooms;
+    this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
   }
 
   private startRound(): void {
@@ -282,6 +296,11 @@ export class GameScene extends Phaser.Scene {
     this.flames = new Set();
     this.igniteRandomFlame();
     this.updateTurnOrderText();
+
+    // A fresh round starts with nothing remembered yet, even on an unchanged map.
+    this.currentRoomKeys = new Set();
+    this.memorizedRoomKeys = [];
+    this.roomFlameSnapshots = new Map();
   }
 
   private placePlayersAtStart(): void {
@@ -391,6 +410,11 @@ export class GameScene extends Phaser.Scene {
     this.accessibleTiles = new Set(
       getReachableTiles(map, { x: 0, y: 0 }).map((tile) => squareKey(tile.y, tile.x))
     );
+    this.roomsByKey = new Map(map.rooms.map((room) => [roomKey(room), room]));
+    this.visibleTiles = new Set();
+    this.currentRoomKeys = new Set();
+    this.memorizedRoomKeys = [];
+    this.roomFlameSnapshots = new Map();
   }
 
   private setupDebugGui(): void {
@@ -453,6 +477,7 @@ export class GameScene extends Phaser.Scene {
 
   private layout(): void {
     this.pruneFlames();
+    this.updateVisibility();
 
     for (const square of this.squares.values()) square.destroy();
     this.squares.clear();
@@ -613,8 +638,88 @@ export class GameScene extends Phaser.Scene {
     this.hoseGraphics = graphics;
   }
 
+  // Recomputes what's currently visible (the union of every player's own view - see
+  // `computeVisibleTilesForAll`) and updates the room-memory state that drives fog-of-war
+  // rendering: every room a player is currently standing in is added to `memorizedRoomKeys`
+  // (most-recently-entered last, trimmed to `fogOfWarMemoryRooms`), and any room that was
+  // current last call but isn't anymore gets a snapshot of its flame tiles taken - the frozen
+  // view `fogOfWarStaticMemory` renders for it until a player can see it again. Cheap to call
+  // whenever fog of war is off; still runs so memory state doesn't go stale while it's off,
+  // in case it's toggled back on mid-round.
+  private updateVisibility(): void {
+    this.visibleTiles = new Set(
+      [...computeVisibleTilesForAll(this.map, this.players.map((player) => ({ x: player.col, y: player.row })))].map(
+        (key) => {
+          const [x, y] = key.split(",").map(Number);
+          return squareKey(y ?? 0, x ?? 0);
+        }
+      )
+    );
+
+    const nextCurrentRoomKeys = new Set<string>();
+    for (const player of this.players) {
+      const room = roomAt(this.map, player.col, player.row);
+      if (room) nextCurrentRoomKeys.add(roomKey(room));
+    }
+
+    for (const key of this.currentRoomKeys) {
+      if (nextCurrentRoomKeys.has(key)) continue;
+      const room = this.roomsByKey.get(key);
+      if (room) this.roomFlameSnapshots.set(key, this.snapshotFlamesInRoom(room));
+    }
+
+    for (const key of nextCurrentRoomKeys) {
+      const existingIndex = this.memorizedRoomKeys.indexOf(key);
+      if (existingIndex !== -1) this.memorizedRoomKeys.splice(existingIndex, 1);
+      this.memorizedRoomKeys.push(key);
+    }
+    if (this.fogOfWarMemoryRooms <= 0) {
+      this.memorizedRoomKeys = [];
+    } else if (this.memorizedRoomKeys.length > this.fogOfWarMemoryRooms) {
+      this.memorizedRoomKeys = this.memorizedRoomKeys.slice(-this.fogOfWarMemoryRooms);
+    }
+
+    this.currentRoomKeys = nextCurrentRoomKeys;
+  }
+
+  private snapshotFlamesInRoom(room: Room): Set<string> {
+    const snapshot = new Set<string>();
+    for (let y = room.top; y < room.top + room.height; y++) {
+      for (let x = room.left; x < room.left + room.width; x++) {
+        const key = squareKey(y, x);
+        if (this.flames.has(key)) snapshot.add(key);
+      }
+    }
+    return snapshot;
+  }
+
+  private refreshAllSquareFills(): void {
+    for (const [key, square] of this.squares) {
+      const [row, col] = parseSquareKey(key);
+      square.setFillStyle(this.squareFill(row, col));
+    }
+  }
+
   private squareFill(row: number, col: number): number {
-    if (this.flames.has(squareKey(row, col))) return FLAME_COLOR;
+    if (!this.fogOfWarEnabled) return this.liveSquareFill(row, col);
+
+    const key = squareKey(row, col);
+    if (this.visibleTiles.has(key)) return this.liveSquareFill(row, col);
+
+    const room = roomAt(this.map, col, row);
+    const memoryKey = room ? roomKey(room) : undefined;
+    if (memoryKey && this.memorizedRoomKeys.includes(memoryKey)) {
+      if (!this.fogOfWarStaticMemory) return this.liveSquareFill(row, col);
+      const snapshot = this.roomFlameSnapshots.get(memoryKey);
+      if (snapshot?.has(key)) return FLAME_COLOR;
+      return this.liveSquareFill(row, col, true);
+    }
+
+    return FOG_COLOR;
+  }
+
+  private liveSquareFill(row: number, col: number, ignoreFlame = false): number {
+    if (!ignoreFlame && this.flames.has(squareKey(row, col))) return FLAME_COLOR;
     if (!this.accessibleTiles.has(squareKey(row, col))) return INACCESSIBLE_COLOR;
     if (isGrass(this.map, col, row)) return OUTSIDE_COLOR;
     return EMPTY_COLOR;
@@ -967,10 +1072,18 @@ export class GameScene extends Phaser.Scene {
     player.row = row;
     player.col = col;
 
-    this.getSquare(previousRow, previousCol).setFillStyle(
-      this.squareFill(previousRow, previousCol)
-    );
-    this.getSquare(row, col).setFillStyle(this.squareFill(row, col));
+    if (this.fogOfWarEnabled) {
+      // Moving can reveal or hide far more than just the tile stepped onto/off of - an
+      // entire room's worth of tiles, or everything down a corridor's line of sight - so
+      // fog of war needs every square's fill re-evaluated, not just these two.
+      this.updateVisibility();
+      this.refreshAllSquareFills();
+    } else {
+      this.getSquare(previousRow, previousCol).setFillStyle(
+        this.squareFill(previousRow, previousCol)
+      );
+      this.getSquare(row, col).setFillStyle(this.squareFill(row, col));
+    }
 
     const markerX = this.boardOffsetX + col * this.cellSize + this.cellSize / 2;
     const markerY = this.boardOffsetY + row * this.cellSize + this.cellSize / 2;
@@ -1108,6 +1221,11 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
+}
+
+// Rooms never overlap, so a room's top-left corner uniquely identifies it within a map.
+function roomKey(room: Room): string {
+  return `${String(room.left)},${String(room.top)}`;
 }
 
 function shuffleArray<T>(items: T[]): T[] {

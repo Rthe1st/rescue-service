@@ -25,6 +25,9 @@ Everything lives flat in `src/`, no subdirectories:
   `createSettingsGui` panel (including preset save/load via `localStorage`).
 - `mapGeneration.ts` — pure, framework-free map data structure and generation logic. No
   Phaser imports; this is what's unit tested.
+- `visibility.ts` — pure, framework-free fog-of-war line-of-sight logic
+  (`computeVisibleTiles`/`computeVisibleTilesForAll`, `roomAt`), same style as
+  `mapGeneration.ts` and unit tested the same way.
 - `MainMenuScene.ts`, `MapPreviewScene.ts`, `GameScene.ts` — one Phaser `Scene` subclass
   each, registered in `main.ts` and switched between with `this.scene.start(...)`.
 
@@ -104,6 +107,15 @@ redrawing the board and any UI. There's no persistent DOM layout being resized �
   instead of `movePlayer` - walking up to `hoseSprayRange` tiles from the player in a
   straight line, stopping at the first wall, and extinguishing only the first (nearest)
   flame found along the way rather than every flame on the line.
+- Fog of war, when `fogOfWarEnabled`, changes what `squareFill` returns for a tile instead
+  of changing the tile set itself: `updateVisibility` (called at the top of every `layout()`
+  and, on the movement fast path, right before `movePlayer` re-renders squares) recomputes
+  `visibleTiles` from `computeVisibleTilesForAll` and updates `memorizedRoomKeys`/
+  `roomFlameSnapshots` (see **Fog of war** in `glossary.md`); `squareFill` then falls back
+  from live rendering to memorized rendering to `FOG_COLOR` per tile. Because `movePlayer`
+  otherwise only re-renders the two tiles a player left/entered, it has to fall back to
+  `refreshAllSquareFills()` (every square, not just those two) whenever fog of war is on,
+  since a single step can reveal or hide an entire room or corridor's line of sight.
 
 ## Settings
 
@@ -120,7 +132,9 @@ Presets are named snapshots of the whole `GameParams` object, validated with
 - **Unit tests** (`npm run test:unit`, Vitest) cover `mapGeneration.ts` directly —
   generation invariants (door counts, room enclosure, connectivity), and the
   `getDoorTiles`/`findReachableTiles` helpers — using a seeded PRNG (`mulberry32`) so
-  generation is deterministic in tests.
+  generation is deterministic in tests. `visibility.ts` is covered the same way, against
+  hand-built maps/rooms rather than generated ones, since line-of-sight only needs to be
+  checked against known wall/door layouts.
 - **Layout tests** (`npm run test:layout`, Playwright) load the built app in a real
   browser at different viewport sizes/orientations and assert on scene element bounds
   (exposed via each scene's `getTestBounds()`) to catch elements clipping off-screen or
