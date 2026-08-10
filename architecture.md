@@ -39,15 +39,22 @@ needing a separate "carve a gap" step that mutates tile types. Every map functio
 coordinates and is a pure function with no hidden state, which is what makes
 `mapGeneration.ts` cleanly unit-testable independent of Phaser or the DOM.
 
-Generation (`generateMapSteps`) runs in four passes over a shared mutable `GameMap`:
+Generation (`generateMapSteps`) runs in five passes over a shared mutable `GameMap`:
 
 1. `createOpenMap` — every interior edge open, only the outer border walled.
 2. `placeRoomsSteps` — randomly place non-overlapping, edge-adjacent rooms, enclosing
    each one in walls as it's placed.
-3. `placeDoorsSteps` — pick `doorCount` random border tiles and open their outward wall.
+3. `placeFrontDoorsSteps` — turn up to `doorCount` walls between a room and the outer
+   ring into front doors.
 4. `connectRoomsSteps` — label connected components among "significant" tiles (room
-   tiles and door tiles) via flood fill, then repeatedly carve the cheapest path (0-1 BFS
-   over wall-crossing cost) between two components until only one remains.
+   tiles and a ring anchor point) via flood fill, then repeatedly carve the cheapest path
+   (0-1 BFS over wall-crossing cost) between two components until only one remains, so
+   every room reaches the ring.
+5. `addExtraDoorsSteps` — for every wall shared between two rooms that still has no door
+   on it, roll `extraDoorPercent` and, on success, carve one door somewhere along it —
+   giving rooms extra ways in and out beyond the single doorway step 4 needed for
+   connectivity, so the floor plan reads as an interconnected building rather than one
+   long linear chain of rooms.
 
 Both `generateMap` (returns the finished map) and `generateMapSteps` (a generator that
 also yields an intermediate snapshot after every meaningful change) run the same logic;

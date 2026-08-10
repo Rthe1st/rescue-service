@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DOOR_COUNT,
+  DEFAULT_EXTRA_DOOR_PERCENT,
   MAX_DOOR_COUNT,
+  addExtraDoors,
   canPass,
   computeGrassTiles,
   createBlankMap,
@@ -260,6 +262,92 @@ describe("placeFrontDoors", () => {
     for (const segment of getDoorSegments(map)) {
       expect(isFrontDoorSegment(map, segment)).toBe(true);
     }
+  });
+});
+
+function isRoomDividingSegment(map: GameMap, segment: WallSegment): boolean {
+  const roomA = isInAnyRoom(map, segment.x1, segment.y1);
+  const roomB = isInAnyRoom(map, segment.x2, segment.y2);
+  if (!roomA || !roomB) return false;
+  return !map.rooms.some(
+    (room) =>
+      isInsideRoomBounds(room, segment.x1, segment.y1) &&
+      isInsideRoomBounds(room, segment.x2, segment.y2)
+  );
+}
+
+function isInsideRoomBounds(room: Room, x: number, y: number): boolean {
+  return x >= room.left && x < room.left + room.width && y >= room.top && y < room.top + room.height;
+}
+
+describe("addExtraDoors", () => {
+  it("defaults to a 30% extra door chance", () => {
+    expect(DEFAULT_EXTRA_DOOR_PERCENT).toBe(30);
+  });
+
+  it("opens no extra doors when extraDoorPercent is 0", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const map = roomMap(40, 30, seed + 17000);
+      addExtraDoors(map, 0, mulberry32(seed + 17500));
+      expect(getDoorSegments(map)).toHaveLength(0);
+    }
+  });
+
+  it("opens at least one door on every wall shared between two rooms when extraDoorPercent is 100", () => {
+    let sawRoomDividingWall = false;
+    for (let seed = 0; seed < 10; seed++) {
+      const map = roomMap(40, 30, seed + 18000);
+
+      // Group dividing edges by which pair of rooms they separate - two non-overlapping
+      // rectangular rooms only ever share a single contiguous wall, so this is the same
+      // grouping `addExtraDoors` itself uses to decide where "a wall" starts and ends.
+      const wallsByRoomPair = new Map<string, WallSegment[]>();
+      for (let y = 0; y < map.height; y++) {
+        for (let x = 0; x < map.width; x++) {
+          for (const [nx, ny] of [
+            [x + 1, y],
+            [x, y + 1],
+          ] as const) {
+            const edge = { x1: x, y1: y, x2: nx, y2: ny };
+            if (!isRoomDividingSegment(map, edge)) continue;
+            const roomA = map.rooms.findIndex((room) => isInsideRoomBounds(room, x, y));
+            const roomB = map.rooms.findIndex((room) => isInsideRoomBounds(room, nx, ny));
+            const key = roomA < roomB ? `${String(roomA)},${String(roomB)}` : `${String(roomB)},${String(roomA)}`;
+            const edges = wallsByRoomPair.get(key) ?? [];
+            edges.push(edge);
+            wallsByRoomPair.set(key, edges);
+          }
+        }
+      }
+      if (wallsByRoomPair.size === 0) continue;
+      sawRoomDividingWall = true;
+
+      addExtraDoors(map, 100, mulberry32(seed + 18500));
+
+      for (const edges of wallsByRoomPair.values()) {
+        const hasAnyDoor = edges.some((edge) => hasDoor(map, edge.x1, edge.y1, edge.x2, edge.y2));
+        expect(hasAnyDoor).toBe(true);
+      }
+    }
+    expect(sawRoomDividingWall).toBe(true);
+  });
+
+  it("never opens a door that isn't between two different rooms", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const map = roomMap(40, 30, seed + 19000);
+      addExtraDoors(map, 100, mulberry32(seed + 19500));
+      for (const segment of getDoorSegments(map)) {
+        expect(isRoomDividingSegment(map, segment)).toBe(true);
+      }
+    }
+  });
+
+  it("is deterministic for a given random source", () => {
+    const mapA = roomMap(40, 30, 20000);
+    const mapB = roomMap(40, 30, 20000);
+    addExtraDoors(mapA, 30, mulberry32(20500));
+    addExtraDoors(mapB, 30, mulberry32(20500));
+    expect([...mapA.doors].sort()).toEqual([...mapB.doors].sort());
   });
 });
 
