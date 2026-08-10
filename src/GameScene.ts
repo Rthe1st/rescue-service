@@ -10,11 +10,10 @@ import {
   isGrass,
   isOuterRing,
   type GameMap,
-  type Room,
   type WallSegment,
 } from "./mapGeneration";
 import { generatePlayerNames } from "./playerNames";
-import { computeVisibleTilesForAll, roomAt } from "./visibility";
+import { computeVisibleTilesForAll } from "./visibility";
 
 const CONTROLS_AREA_SIZE = 140;
 const TOP_MARGIN = 104;
@@ -97,6 +96,13 @@ interface HoseState {
   carriedBy: number | null;
 }
 
+// One entry in `GameScene.visibilityHistory`: what was visible, and which of those tiles
+// were on fire, at the moment a move was recorded (see `recordVisibilityForMemory`).
+interface VisibilitySnapshot {
+  visible: Set<string>;
+  flames: Set<string>;
+}
+
 function sameTile(a: HoseTile, b: HoseTile): boolean {
   return a.row === b.row && a.col === b.col;
 }
@@ -151,13 +157,10 @@ export class GameScene extends Phaser.Scene {
   private hoseSprayRange = gameSettings.hoseSprayRange;
   private hoseCount = gameSettings.hoseCount;
   private fogOfWarEnabled = gameSettings.fogOfWarEnabled;
-  private fogOfWarMemoryRooms = gameSettings.fogOfWarMemoryRooms;
+  private fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
   private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
-  private roomsByKey = new Map<string, Room>();
   private visibleTiles = new Set<string>();
-  private currentRoomKeys = new Set<string>();
-  private memorizedRoomKeys: string[] = [];
-  private roomFlameSnapshots = new Map<string, Set<string>>();
+  private visibilityHistory: VisibilitySnapshot[] = [];
 
   constructor() {
     super({ key: "GameScene" });
@@ -283,7 +286,7 @@ export class GameScene extends Phaser.Scene {
     this.hoseSprayRange = gameSettings.hoseSprayRange;
     this.hoseCount = gameSettings.hoseCount;
     this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
-    this.fogOfWarMemoryRooms = gameSettings.fogOfWarMemoryRooms;
+    this.fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
     this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
   }
 
@@ -297,10 +300,12 @@ export class GameScene extends Phaser.Scene {
     this.igniteRandomFlame();
     this.updateTurnOrderText();
 
-    // A fresh round starts with nothing remembered yet, even on an unchanged map.
-    this.currentRoomKeys = new Set();
-    this.memorizedRoomKeys = [];
-    this.roomFlameSnapshots = new Map();
+    // A fresh round starts with nothing remembered yet, even on an unchanged map - then
+    // seed the very first move (the starting positions) so stepping away immediately still
+    // leaves that view in memory.
+    this.visibilityHistory = [];
+    this.refreshVisibleTiles();
+    this.recordVisibilityForMemory();
   }
 
   private placePlayersAtStart(): void {
@@ -410,11 +415,8 @@ export class GameScene extends Phaser.Scene {
     this.accessibleTiles = new Set(
       getReachableTiles(map, { x: 0, y: 0 }).map((tile) => squareKey(tile.y, tile.x))
     );
-    this.roomsByKey = new Map(map.rooms.map((room) => [roomKey(room), room]));
     this.visibleTiles = new Set();
-    this.currentRoomKeys = new Set();
-    this.memorizedRoomKeys = [];
-    this.roomFlameSnapshots = new Map();
+    this.visibilityHistory = [];
   }
 
   private setupDebugGui(): void {
@@ -477,7 +479,8 @@ export class GameScene extends Phaser.Scene {
 
   private layout(): void {
     this.pruneFlames();
-    this.updateVisibility();
+    this.refreshVisibleTiles();
+    this.trimVisibilityHistory();
 
     for (const square of this.squares.values()) square.destroy();
     this.squares.clear();
@@ -639,14 +642,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Recomputes what's currently visible (the union of every player's own view - see
-  // `computeVisibleTilesForAll`) and updates the room-memory state that drives fog-of-war
-  // rendering: every room a player is currently standing in is added to `memorizedRoomKeys`
-  // (most-recently-entered last, trimmed to `fogOfWarMemoryRooms`), and any room that was
-  // current last call but isn't anymore gets a snapshot of its flame tiles taken - the frozen
-  // view `fogOfWarStaticMemory` renders for it until a player can see it again. Cheap to call
-  // whenever fog of war is off; still runs so memory state doesn't go stale while it's off,
-  // in case it's toggled back on mid-round.
-  private updateVisibility(): void {
+  // `computeVisibleTilesForAll`). Cheap to call whenever fog of war is off; still runs so
+  // rendering stays correct if it's toggled back on mid-round. Doesn't touch
+  // `visibilityHistory` - call `recordVisibilityForMemory` separately for that, only when a
+  // player actually moves (see its own comment for why).
+  private refreshVisibleTiles(): void {
     this.visibleTiles = new Set(
       [...computeVisibleTilesForAll(this.map, this.players.map((player) => ({ x: player.col, y: player.row })))].map(
         (key) => {
@@ -655,42 +655,36 @@ export class GameScene extends Phaser.Scene {
         }
       )
     );
-
-    const nextCurrentRoomKeys = new Set<string>();
-    for (const player of this.players) {
-      const room = roomAt(this.map, player.col, player.row);
-      if (room) nextCurrentRoomKeys.add(roomKey(room));
-    }
-
-    for (const key of this.currentRoomKeys) {
-      if (nextCurrentRoomKeys.has(key)) continue;
-      const room = this.roomsByKey.get(key);
-      if (room) this.roomFlameSnapshots.set(key, this.snapshotFlamesInRoom(room));
-    }
-
-    for (const key of nextCurrentRoomKeys) {
-      const existingIndex = this.memorizedRoomKeys.indexOf(key);
-      if (existingIndex !== -1) this.memorizedRoomKeys.splice(existingIndex, 1);
-      this.memorizedRoomKeys.push(key);
-    }
-    if (this.fogOfWarMemoryRooms <= 0) {
-      this.memorizedRoomKeys = [];
-    } else if (this.memorizedRoomKeys.length > this.fogOfWarMemoryRooms) {
-      this.memorizedRoomKeys = this.memorizedRoomKeys.slice(-this.fogOfWarMemoryRooms);
-    }
-
-    this.currentRoomKeys = nextCurrentRoomKeys;
   }
 
-  private snapshotFlamesInRoom(room: Room): Set<string> {
-    const snapshot = new Set<string>();
-    for (let y = room.top; y < room.top + room.height; y++) {
-      for (let x = room.left; x < room.left + room.width; x++) {
-        const key = squareKey(y, x);
-        if (this.flames.has(key)) snapshot.add(key);
-      }
+  // Pushes the current `visibleTiles` (plus which of those tiles are on fire right now) as
+  // one more entry in `visibilityHistory`, and trims it to the last `fogOfWarMemoryMoves`
+  // moves - "whatever the player could see on each move up to N moves ago". Call this once
+  // per actual player move (including the round's starting position, treated as move zero),
+  // not from every `layout()` - a resize or phase transition re-renders the board but isn't a
+  // move, and would otherwise burn through the fixed-size history window without anything
+  // having actually changed.
+  private recordVisibilityForMemory(): void {
+    this.visibilityHistory.push({ visible: this.visibleTiles, flames: new Set(this.flames) });
+    this.trimVisibilityHistory();
+  }
+
+  private trimVisibilityHistory(): void {
+    if (this.fogOfWarMemoryMoves <= 0) {
+      this.visibilityHistory = [];
+    } else if (this.visibilityHistory.length > this.fogOfWarMemoryMoves) {
+      this.visibilityHistory = this.visibilityHistory.slice(-this.fogOfWarMemoryMoves);
     }
-    return snapshot;
+  }
+
+  // The most recent memorized move (most recent first) in which `key` was visible, if any -
+  // what `fogOfWarStaticMemory` should render a memorized-but-not-currently-visible tile as.
+  private findMemory(key: string): VisibilitySnapshot | undefined {
+    for (let i = this.visibilityHistory.length - 1; i >= 0; i--) {
+      const snapshot = this.visibilityHistory[i];
+      if (snapshot?.visible.has(key)) return snapshot;
+    }
+    return undefined;
   }
 
   private refreshAllSquareFills(): void {
@@ -706,16 +700,10 @@ export class GameScene extends Phaser.Scene {
     const key = squareKey(row, col);
     if (this.visibleTiles.has(key)) return this.liveSquareFill(row, col);
 
-    const room = roomAt(this.map, col, row);
-    const memoryKey = room ? roomKey(room) : undefined;
-    if (memoryKey && this.memorizedRoomKeys.includes(memoryKey)) {
-      if (!this.fogOfWarStaticMemory) return this.liveSquareFill(row, col);
-      const snapshot = this.roomFlameSnapshots.get(memoryKey);
-      if (snapshot?.has(key)) return FLAME_COLOR;
-      return this.liveSquareFill(row, col, true);
-    }
-
-    return FOG_COLOR;
+    const memory = this.findMemory(key);
+    if (!memory) return FOG_COLOR;
+    if (!this.fogOfWarStaticMemory) return this.liveSquareFill(row, col);
+    return memory.flames.has(key) ? FLAME_COLOR : this.liveSquareFill(row, col, true);
   }
 
   private liveSquareFill(row: number, col: number, ignoreFlame = false): number {
@@ -1076,7 +1064,8 @@ export class GameScene extends Phaser.Scene {
       // Moving can reveal or hide far more than just the tile stepped onto/off of - an
       // entire room's worth of tiles, or everything down a corridor's line of sight - so
       // fog of war needs every square's fill re-evaluated, not just these two.
-      this.updateVisibility();
+      this.refreshVisibleTiles();
+      this.recordVisibilityForMemory();
       this.refreshAllSquareFills();
     } else {
       this.getSquare(previousRow, previousCol).setFillStyle(
@@ -1221,11 +1210,6 @@ function squareKey(row: number, col: number): string {
 function parseSquareKey(key: string): [number, number] {
   const [rowPart, colPart] = key.split("-");
   return [Number(rowPart), Number(colPart)];
-}
-
-// Rooms never overlap, so a room's top-left corner uniquely identifies it within a map.
-function roomKey(room: Room): string {
-  return `${String(room.left)},${String(room.top)}`;
 }
 
 function shuffleArray<T>(items: T[]): T[] {

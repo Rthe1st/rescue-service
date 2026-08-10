@@ -25,9 +25,9 @@ export const DEFAULT_HOSE_COUNT = 1;
 export const MIN_HOSE_COUNT = 0;
 export const MAX_HOSE_COUNT = 10;
 export const DEFAULT_FOG_OF_WAR_ENABLED = false;
-export const DEFAULT_FOG_OF_WAR_MEMORY_ROOMS = 0;
-export const MIN_FOG_OF_WAR_MEMORY_ROOMS = 0;
-export const MAX_FOG_OF_WAR_MEMORY_ROOMS = 20;
+export const DEFAULT_FOG_OF_WAR_MEMORY_MOVES = 0;
+export const MIN_FOG_OF_WAR_MEMORY_MOVES = 0;
+export const MAX_FOG_OF_WAR_MEMORY_MOVES = 20;
 export const DEFAULT_FOG_OF_WAR_STATIC_MEMORY = false;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
@@ -48,7 +48,7 @@ export interface GameParams {
   hoseSprayRange: number;
   hoseCount: number;
   fogOfWarEnabled: boolean;
-  fogOfWarMemoryRooms: number;
+  fogOfWarMemoryMoves: number;
   fogOfWarStaticMemory: boolean;
 }
 
@@ -68,7 +68,7 @@ export const gameSettings: GameParams = {
   hoseSprayRange: DEFAULT_HOSE_SPRAY_RANGE,
   hoseCount: DEFAULT_HOSE_COUNT,
   fogOfWarEnabled: DEFAULT_FOG_OF_WAR_ENABLED,
-  fogOfWarMemoryRooms: DEFAULT_FOG_OF_WAR_MEMORY_ROOMS,
+  fogOfWarMemoryMoves: DEFAULT_FOG_OF_WAR_MEMORY_MOVES,
   fogOfWarStaticMemory: DEFAULT_FOG_OF_WAR_STATIC_MEMORY,
 };
 
@@ -91,7 +91,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["hoseSprayRange"] === "number" &&
     typeof candidate["hoseCount"] === "number" &&
     typeof candidate["fogOfWarEnabled"] === "boolean" &&
-    typeof candidate["fogOfWarMemoryRooms"] === "number" &&
+    typeof candidate["fogOfWarMemoryMoves"] === "number" &&
     typeof candidate["fogOfWarStaticMemory"] === "boolean"
   );
 }
@@ -182,9 +182,9 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "fogOfWarEnabled")
     .name("Fog of war")
     .onChange(() => onChange?.());
-  const fogOfWarMemoryRoomsController = gui
-    .add(gameSettings, "fogOfWarMemoryRooms", MIN_FOG_OF_WAR_MEMORY_ROOMS, MAX_FOG_OF_WAR_MEMORY_ROOMS, 1)
-    .name("Fog of war memory (rooms)")
+  const fogOfWarMemoryMovesController = gui
+    .add(gameSettings, "fogOfWarMemoryMoves", MIN_FOG_OF_WAR_MEMORY_MOVES, MAX_FOG_OF_WAR_MEMORY_MOVES, 1)
+    .name("Fog of war memory (moves)")
     .onChange(() => onChange?.());
   const fogOfWarStaticMemoryController = gui
     .add(gameSettings, "fogOfWarStaticMemory")
@@ -213,7 +213,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.hoseSprayRange = preset.hoseSprayRange;
     gameSettings.hoseCount = preset.hoseCount;
     gameSettings.fogOfWarEnabled = preset.fogOfWarEnabled;
-    gameSettings.fogOfWarMemoryRooms = preset.fogOfWarMemoryRooms;
+    gameSettings.fogOfWarMemoryMoves = preset.fogOfWarMemoryMoves;
     gameSettings.fogOfWarStaticMemory = preset.fogOfWarStaticMemory;
     gridController.updateDisplay();
     scaleController.updateDisplay();
@@ -230,7 +230,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     hoseSprayRangeController.updateDisplay();
     hoseCountController.updateDisplay();
     fogOfWarEnabledController.updateDisplay();
-    fogOfWarMemoryRoomsController.updateDisplay();
+    fogOfWarMemoryMovesController.updateDisplay();
     fogOfWarStaticMemoryController.updateDisplay();
 
     onChange?.();

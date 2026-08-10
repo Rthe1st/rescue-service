@@ -29,31 +29,86 @@ export function roomAt(map: GameMap, x: number, y: number): Room | undefined {
  * first wall beyond it) - "the room they're in and in direct lines through doors" applies to
  * every door of the room, not just one aligned with the player's exact tile, since the whole
  * room is already revealed regardless of where in it they're standing. A player not
- * currently in any room instead sees just their own tile plus a straight line of sight in
- * each of the 4 cardinal directions from it. Line-walking uses the same rule as the fire
- * hose's spray (`sprayHose` in `GameScene`), so seeing through a doorway and spraying through
+ * currently in any room instead sees every tile in the map with an unobstructed direct line
+ * of sight from their own tile - not just the 4 cardinal directions, since outdoors is open
+ * ground rather than a corridor. Line-walking through a doorway uses the same rule as the
+ * fire hose's spray (`sprayHose` in `GameScene`), so seeing through one and spraying through
  * one cover exactly the same tiles.
  */
 export function computeVisibleTiles(map: GameMap, player: Point): Set<string> {
-  const visible = new Set<string>();
   const room = roomAt(map, player.x, player.y);
+  if (!room) return computeLineOfSightTiles(map, player);
 
-  if (room) {
-    for (let y = room.top; y < room.top + room.height; y++) {
-      for (let x = room.left; x < room.left + room.width; x++) {
-        visible.add(pointKey(x, y));
-      }
+  const visible = new Set<string>();
+  for (let y = room.top; y < room.top + room.height; y++) {
+    for (let x = room.left; x < room.left + room.width; x++) {
+      visible.add(pointKey(x, y));
     }
-    for (const doorway of roomDoorways(map, room)) {
-      castRay(map, visible, doorway.outside, doorway.dx, doorway.dy);
-    }
-  } else {
-    for (const [dx, dy] of DIRECTIONS) {
-      castRay(map, visible, player, dx, dy);
+  }
+  for (const doorway of roomDoorways(map, room)) {
+    castRay(map, visible, doorway.outside, doorway.dx, doorway.dy);
+  }
+
+  return visible;
+}
+
+/** Every tile in the map with an unobstructed straight line of sight from `player`. */
+function computeLineOfSightTiles(map: GameMap, player: Point): Set<string> {
+  const visible = new Set<string>([pointKey(player.x, player.y)]);
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (x === player.x && y === player.y) continue;
+      if (hasLineOfSight(map, player, { x, y })) visible.add(pointKey(x, y));
     }
   }
 
   return visible;
+}
+
+/**
+ * Whether a straight line from `from` to `to` crosses no walls, walking tile-to-tile via
+ * Bresenham's algorithm. A step that moves diagonally (common whenever the line isn't
+ * perfectly horizontal, vertical, or 45 degrees) is permitted if either of the two
+ * orthogonal detours around that corner is open - matching the usual roguelike rule that a
+ * single solid corner tile doesn't block sight, but a diagonal pair of walls (both detours
+ * blocked) does.
+ */
+function hasLineOfSight(map: GameMap, from: Point, to: Point): boolean {
+  let x = from.x;
+  let y = from.y;
+  const dx = Math.abs(to.x - x);
+  const dy = Math.abs(to.y - y);
+  const sx = x < to.x ? 1 : -1;
+  const sy = y < to.y ? 1 : -1;
+  let err = dx - dy;
+
+  while (x !== to.x || y !== to.y) {
+    const e2 = 2 * err;
+    const stepX = e2 > -dy;
+    const stepY = e2 < dx;
+
+    if (stepX && stepY) {
+      const throughHorizontal =
+        canPass(map, x, y, x + sx, y) && canPass(map, x + sx, y, x + sx, y + sy);
+      const throughVertical =
+        canPass(map, x, y, x, y + sy) && canPass(map, x, y + sy, x + sx, y + sy);
+      if (!throughHorizontal && !throughVertical) return false;
+      x += sx;
+      y += sy;
+      err += dx - dy;
+    } else if (stepX) {
+      if (!canPass(map, x, y, x + sx, y)) return false;
+      x += sx;
+      err -= dy;
+    } else {
+      if (!canPass(map, x, y, x, y + sy)) return false;
+      y += sy;
+      err += dx;
+    }
+  }
+
+  return true;
 }
 
 /** Walks from `start` in direction (dx, dy) while the way stays open, marking every tile
