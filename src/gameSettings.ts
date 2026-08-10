@@ -12,6 +12,8 @@ export const DEFAULT_GENERATION_STEP_DELAY_MS = 20;
 export const DEFAULT_PLAYER_COUNT = 1;
 export const MIN_PLAYER_COUNT = 1;
 export const MAX_PLAYER_COUNT = 8;
+export const DEFAULT_MAX_HOSE_LENGTH = 10;
+export const DEFAULT_HOSE_SPRAY_RANGE = 5;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -26,6 +28,8 @@ export interface GameParams {
   generationStepDelayMs: number;
   doorCount: number;
   playerCount: number;
+  maxHoseLength: number;
+  hoseSprayRange: number;
 }
 
 export const gameSettings: GameParams = {
@@ -39,6 +43,8 @@ export const gameSettings: GameParams = {
   generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
   doorCount: DEFAULT_DOOR_COUNT,
   playerCount: DEFAULT_PLAYER_COUNT,
+  maxHoseLength: DEFAULT_MAX_HOSE_LENGTH,
+  hoseSprayRange: DEFAULT_HOSE_SPRAY_RANGE,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -54,7 +60,9 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
     typeof candidate["generationStepDelayMs"] === "number" &&
     typeof candidate["doorCount"] === "number" &&
-    typeof candidate["playerCount"] === "number"
+    typeof candidate["playerCount"] === "number" &&
+    typeof candidate["maxHoseLength"] === "number" &&
+    typeof candidate["hoseSprayRange"] === "number"
   );
 }
 
@@ -124,6 +132,14 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "playerCount", MIN_PLAYER_COUNT, MAX_PLAYER_COUNT, 1)
     .name("Number of players")
     .onChange(() => onChange?.());
+  const maxHoseLengthController = gui
+    .add(gameSettings, "maxHoseLength", 1, 30, 1)
+    .name("Max hose length")
+    .onChange(() => onChange?.());
+  const hoseSprayRangeController = gui
+    .add(gameSettings, "hoseSprayRange", 1, 20, 1)
+    .name("Hose spray range")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -142,6 +158,8 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
     gameSettings.doorCount = preset.doorCount;
     gameSettings.playerCount = preset.playerCount;
+    gameSettings.maxHoseLength = preset.maxHoseLength;
+    gameSettings.hoseSprayRange = preset.hoseSprayRange;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -152,6 +170,8 @@ export function createSettingsGui(onChange?: () => void): GUI {
     generationStepDelayController.updateDisplay();
     doorCountController.updateDisplay();
     playerCountController.updateDisplay();
+    maxHoseLengthController.updateDisplay();
+    hoseSprayRangeController.updateDisplay();
 
     onChange?.();
   };
