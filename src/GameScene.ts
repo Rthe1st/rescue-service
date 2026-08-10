@@ -33,7 +33,6 @@ const ACTIVE_PLAYER_BORDER_COLOR = 0xffeb3b;
 const ACTIVE_PLAYER_BORDER_WIDTH = 3;
 const PLAYER_CIRCLE_SIZE_RATIO = 0.8;
 
-const MAX_HOSE_LENGTH = 10;
 const HOSE_COLOR = 0xd32f2f;
 const HOSE_LINE_WIDTH_RATIO = 0.2;
 const HOSE_END_MARKER_RADIUS_RATIO = 0.15;
@@ -86,9 +85,10 @@ interface HoseTile {
   col: number;
 }
 
-// The hose is a path of tiles, ordered from its fixed/anchor end to its loose end. While
-// `carriedBy` is set, the loose end (the last entry) is the one that moves with that
-// player. `path.length` is always at least 1 - it never has zero tiles.
+// The hose is a path of tiles, ordered from its fixed anchor end (`path[0]`, always the
+// tile it started the round on) to its loose end (the last entry). Only the loose end can
+// ever be picked up or moves - the anchor end never changes once placed. `path.length` is
+// always at least 1 - it never has zero tiles.
 interface HoseState {
   path: HoseTile[];
   carriedBy: number | null;
@@ -141,6 +141,10 @@ export class GameScene extends Phaser.Scene {
   private hose!: HoseState;
   private hoseGraphics: Phaser.GameObjects.Graphics | undefined;
   private hoseButton: Phaser.GameObjects.Text | undefined;
+  private sprayButton: Phaser.GameObjects.Text | undefined;
+  private sprayArmed = false;
+  private maxHoseLength = gameSettings.maxHoseLength;
+  private hoseSprayRange = gameSettings.hoseSprayRange;
 
   constructor() {
     super({ key: "GameScene" });
@@ -191,8 +195,24 @@ export class GameScene extends Phaser.Scene {
       this.toggleDebugGui();
     });
 
+    const sprayButton = this.add
+      .text(width - 30, 30, "💦", {
+        fontSize: "20px",
+        color: "#ffffff",
+        backgroundColor: "#0277bd",
+        padding: { x: 10, y: 6 },
+      })
+      .setOrigin(0.5);
+
+    sprayButton.on("pointerdown", () => {
+      if (!this.canMove() || this.hose.carriedBy !== this.activePlayerIndex) return;
+      this.sprayArmed = !this.sprayArmed;
+      this.updateSprayButton();
+    });
+
     this.endGameButton = endGameButton;
     this.settingsButton = settingsButton;
+    this.sprayButton = sprayButton;
 
     this.timerText = this.add
       .text(width / 2, 58, "", { fontSize: "16px", color: "#ffffff" })
@@ -225,6 +245,7 @@ export class GameScene extends Phaser.Scene {
 
     const handleResize = (): void => {
       this.endGameButton?.setX(this.scale.width / 2);
+      this.sprayButton?.setX(this.scale.width - 30);
       this.layout();
     };
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
@@ -241,6 +262,8 @@ export class GameScene extends Phaser.Scene {
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
     this.doorCount = gameSettings.doorCount;
+    this.maxHoseLength = gameSettings.maxHoseLength;
+    this.hoseSprayRange = gameSettings.hoseSprayRange;
   }
 
   private startRound(): void {
@@ -470,6 +493,7 @@ export class GameScene extends Phaser.Scene {
     this.createPlayerLabels();
     this.createControls(controlsCenterX, controlsCenterY);
     this.createHoseButton(controlsCenterX, controlsCenterY);
+    this.updateSprayButton();
   }
 
   private createBoard(): void {
@@ -698,7 +722,11 @@ export class GameScene extends Phaser.Scene {
           button.setStyle({ backgroundColor: "#1565c0" })
         );
         button.on("pointerdown", () => {
-          this.movePlayer(direction.dRow, direction.dCol);
+          if (this.sprayArmed) {
+            this.sprayHose(direction.dRow, direction.dCol);
+          } else {
+            this.movePlayer(direction.dRow, direction.dCol);
+          }
         });
       }
 
@@ -749,12 +777,10 @@ export class GameScene extends Phaser.Scene {
     if (this.hose.carriedBy === this.activePlayerIndex) return "drop";
     if (this.hose.carriedBy !== null) return null;
 
-    const path = this.hose.path;
-    const anchor = path[0];
-    const looseEnd = path[path.length - 1];
-    const onEnd =
-      (anchor && sameTile(anchor, player)) || (looseEnd && sameTile(looseEnd, player));
-    return onEnd ? "pickup" : null;
+    // Only the loose end can be picked up - the anchor end (`path[0]`) stays fixed at its
+    // starting position for good. On a freshly placed hose the two are the same tile.
+    const looseEnd = this.hose.path[this.hose.path.length - 1];
+    return looseEnd && sameTile(looseEnd, player) ? "pickup" : null;
   }
 
   private updateHoseButton(): void {
@@ -770,27 +796,18 @@ export class GameScene extends Phaser.Scene {
 
   private toggleHoseCarry(): void {
     const action = this.hoseAction();
-    const player = this.players[this.activePlayerIndex];
-    if (!action || !player) return;
+    if (!action) return;
 
-    if (action === "pickup") {
-      const path = this.hose.path;
-      const anchor = path[0];
-      // Normalize so the carried end is always `path`'s last entry, regardless of which
-      // physical end of the (possibly already-laid-out) hose the player picked up from.
-      if (path.length > 1 && anchor && sameTile(anchor, player)) path.reverse();
-      this.hose.carriedBy = this.activePlayerIndex;
-    } else {
-      this.hose.carriedBy = null;
-    }
+    this.hose.carriedBy = action === "pickup" ? this.activePlayerIndex : null;
 
     this.updateHoseButton();
+    this.updateSprayButton();
     this.drawHose();
   }
 
   // Called only while the active player is carrying the hose, before their move is
   // otherwise committed. Returns whether the move is allowed: growing the hose past
-  // `MAX_HOSE_LENGTH` is blocked, but retracting it - stepping back onto the tile the
+  // `maxHoseLength` is blocked, but retracting it - stepping back onto the tile the
   // hose's loose end just came from - is always allowed, even at max length.
   private extendOrRetractHose(row: number, col: number): boolean {
     const path = this.hose.path;
@@ -799,9 +816,56 @@ export class GameScene extends Phaser.Scene {
       path.pop();
       return true;
     }
-    if (path.length >= MAX_HOSE_LENGTH) return false;
+    if (path.length >= this.maxHoseLength) return false;
     path.push({ row, col });
     return true;
+  }
+
+  // The spray button only does anything while the active player is carrying the hose;
+  // pressing it arms aiming mode without ending the turn, and the next arrow press (in
+  // `sprayHose`) fires in that direction and ends the turn instead of moving.
+  private updateSprayButton(): void {
+    const button = this.sprayButton;
+    if (!button) return;
+
+    const available = this.canMove() && this.hose.carriedBy === this.activePlayerIndex;
+    if (!available) this.sprayArmed = false;
+    button.setVisible(available);
+    button.setText(this.sprayArmed ? "🎯" : "💦");
+    button.setStyle({ backgroundColor: this.sprayArmed ? "#00b0ff" : "#0277bd" });
+    if (available) button.setInteractive({ useHandCursor: true });
+    else button.disableInteractive();
+  }
+
+  // Sprays water in a straight line from the carrying player's tile, up to
+  // `hoseSprayRange` tiles, stopping at the first wall - extinguishing any flame along the
+  // way. Doesn't move the player or change the hose's path; it replaces a move for the
+  // turn instead, so it advances the active player same as `movePlayer` does.
+  private sprayHose(dRow: number, dCol: number): void {
+    if (!this.canMove() || this.hose.carriedBy !== this.activePlayerIndex) return;
+    const player = this.players[this.activePlayerIndex];
+    if (!player) return;
+
+    let row = player.row;
+    let col = player.col;
+    for (let i = 0; i < this.hoseSprayRange; i++) {
+      const nextRow = row + dRow;
+      const nextCol = col + dCol;
+      if (!canPass(this.map, col, row, nextCol, nextRow)) break;
+      row = nextRow;
+      col = nextCol;
+
+      if (this.flames.delete(squareKey(row, col))) {
+        this.getSquare(row, col).setFillStyle(this.squareFill(row, col));
+      }
+    }
+
+    this.sprayArmed = false;
+    this.activePlayerIndex = (this.activePlayerIndex + 1) % this.players.length;
+    this.updateTurnOrderText();
+    this.updateActivePlayerBorder();
+    this.updateHoseButton();
+    this.updateSprayButton();
   }
 
   getTestBounds(): Record<string, ElementBounds> {
@@ -809,6 +873,7 @@ export class GameScene extends Phaser.Scene {
       endGameButton: rectFromBounds(this.endGameButton),
       settingsButton: rectFromBounds(this.settingsButton),
       hoseButton: rectFromBounds(this.hoseButton),
+      sprayButton: rectFromBounds(this.sprayButton),
       board: {
         x: this.boardOffsetX,
         y: this.boardOffsetY,
@@ -872,6 +937,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTurnOrderText();
     this.updateActivePlayerBorder();
     this.updateHoseButton();
+    this.updateSprayButton();
   }
 
   private getSquare(row: number, col: number): Phaser.GameObjects.Rectangle {
