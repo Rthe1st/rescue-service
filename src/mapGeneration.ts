@@ -42,6 +42,12 @@ export interface GenerateMapOptions {
    * defaults to 2. Rooms not reachable via a front door are still connected to the network
    * (and, transitively, the ring) by carving additional doors as needed. */
   doorCount?: number;
+  /** Chance, as a percentage (0-100), that an extra door is carved into the wall shared by
+   * any two adjacent rooms that don't already have a door between them. Clamped to 0-100,
+   * defaults to 30. Applied once per pair of adjacent rooms after the network is otherwise
+   * fully connected, so rooms end up with more than one way in and out instead of only the
+   * single doorway `connectRoomsSteps` needed for connectivity. */
+  extraDoorPercent?: number;
   /** Source of randomness, injectable for deterministic tests. Defaults to Math.random. */
   random?: () => number;
 }
@@ -56,6 +62,10 @@ export interface GenerationStep {
 export const DEFAULT_DOOR_COUNT = 2;
 export const MIN_DOOR_COUNT = 1;
 export const MAX_DOOR_COUNT = 10;
+
+export const DEFAULT_EXTRA_DOOR_PERCENT = 30;
+export const MIN_EXTRA_DOOR_PERCENT = 0;
+export const MAX_EXTRA_DOOR_PERCENT = 100;
 
 // Each room's width and height are independently randomized in this range.
 // The smallest allowed room is 2x2 - no room is ever as thin as a single tile.
@@ -114,6 +124,11 @@ export function* generateMapSteps(
     MIN_DOOR_COUNT,
     MAX_DOOR_COUNT
   );
+  const extraDoorPercent = clamp(
+    Math.round(options.extraDoorPercent ?? DEFAULT_EXTRA_DOOR_PERCENT),
+    MIN_EXTRA_DOOR_PERCENT,
+    MAX_EXTRA_DOOR_PERCENT
+  );
 
   const map = createOpenMap(width, height);
   yield { map: cloneMap(map), description: `Open ${String(width)}x${String(height)} map` };
@@ -122,6 +137,7 @@ export function* generateMapSteps(
   const rooms = yield* placeRoomsSteps(map, roomBounds, random);
   yield* placeFrontDoorsSteps(map, doorCount, random);
   yield* connectRoomsSteps(map, rooms);
+  yield* addExtraDoorsSteps(map, extraDoorPercent, random);
 
   map.grass = computeGrassTiles(map);
   return map;
@@ -535,6 +551,90 @@ function roomToRingWallEdges(map: GameMap): WallSegment[] {
     }
   }
   return edges;
+}
+
+// A run of wall edges shared between the same two rooms - "the wall" that divides them, even
+// though it's stored as several individual edges internally.
+interface RoomDividingWallLength {
+  edges: WallSegment[];
+  hasDoor: boolean;
+}
+
+// Every wall shared between two different rooms, grouped by which pair of rooms it divides
+// (two non-overlapping rectangular rooms only ever share a single contiguous border, so
+// grouping by room pair is equivalent to grouping by contiguous run). `hasDoor` reflects
+// whether any edge on that shared border is already a door - carved earlier by
+// `placeFrontDoorsSteps` or `connectRoomsSteps` - so callers can skip walls that already
+// connect the two rooms.
+function roomDividingWallLengths(map: GameMap): RoomDividingWallLength[] {
+  const lengths = new Map<string, RoomDividingWallLength>();
+
+  const considerEdge = (x1: number, y1: number, x2: number, y2: number): void => {
+    const roomA = roomIndexAt(map, x1, y1);
+    const roomB = roomIndexAt(map, x2, y2);
+    if (roomA === -1 || roomB === -1 || roomA === roomB) return;
+
+    const key = roomA < roomB ? `${String(roomA)},${String(roomB)}` : `${String(roomB)},${String(roomA)}`;
+    let length = lengths.get(key);
+    if (!length) {
+      length = { edges: [], hasDoor: false };
+      lengths.set(key, length);
+    }
+
+    if (hasDoor(map, x1, y1, x2, y2)) {
+      length.hasDoor = true;
+    } else if (hasWall(map, x1, y1, x2, y2)) {
+      length.edges.push({ x1, y1, x2, y2 });
+    }
+  };
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (x + 1 < map.width) considerEdge(x, y, x + 1, y);
+      if (y + 1 < map.height) considerEdge(x, y, x, y + 1);
+    }
+  }
+
+  return [...lengths.values()];
+}
+
+function roomIndexAt(map: GameMap, x: number, y: number): number {
+  return map.rooms.findIndex(
+    (room) => x >= room.left && x < room.left + room.width && y >= room.top && y < room.top + room.height
+  );
+}
+
+// For every wall shared between two adjacent rooms that don't already have a door between
+// them, rolls `extraDoorPercent` and, on success, carves a single door somewhere along that
+// shared wall. This is on top of whatever doors `placeFrontDoorsSteps`/`connectRoomsSteps`
+// already carved for connectivity, so rooms end up with extra ways in and out instead of only
+// ever being reachable via a single linear chain of doorways.
+function* addExtraDoorsSteps(
+  map: GameMap,
+  extraDoorPercent: number,
+  random: () => number
+): Generator<GenerationStep, void, void> {
+  for (const length of roomDividingWallLengths(map)) {
+    if (length.hasDoor || length.edges.length === 0) continue;
+    if (random() * 100 >= extraDoorPercent) continue;
+
+    const edge = length.edges[Math.floor(random() * length.edges.length)];
+    if (!edge) continue;
+
+    const key = wallKey(edge.x1, edge.y1, edge.x2, edge.y2);
+    map.walls.delete(key);
+    map.doors.add(key);
+    yield {
+      map: cloneMap(map),
+      description: `Opened extra door between (${String(edge.x1)}, ${String(edge.y1)}) and (${String(edge.x2)}, ${String(edge.y2)})`,
+    };
+  }
+}
+
+// Exported so tests can exercise extra-door placement in isolation, on a map with rooms but
+// no other doors carved yet.
+export function addExtraDoors(map: GameMap, extraDoorPercent: number, random: () => number): void {
+  drain(addExtraDoorsSteps(map, extraDoorPercent, random));
 }
 
 function shuffle(items: WallSegment[], random: () => number): void {
