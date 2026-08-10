@@ -14,6 +14,9 @@ export const MIN_PLAYER_COUNT = 1;
 export const MAX_PLAYER_COUNT = 8;
 export const DEFAULT_MAX_HOSE_LENGTH = 10;
 export const DEFAULT_HOSE_SPRAY_RANGE = 5;
+export const DEFAULT_HOSE_COUNT = 1;
+export const MIN_HOSE_COUNT = 0;
+export const MAX_HOSE_COUNT = 10;
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -30,6 +33,7 @@ export interface GameParams {
   playerCount: number;
   maxHoseLength: number;
   hoseSprayRange: number;
+  hoseCount: number;
 }
 
 export const gameSettings: GameParams = {
@@ -45,6 +49,7 @@ export const gameSettings: GameParams = {
   playerCount: DEFAULT_PLAYER_COUNT,
   maxHoseLength: DEFAULT_MAX_HOSE_LENGTH,
   hoseSprayRange: DEFAULT_HOSE_SPRAY_RANGE,
+  hoseCount: DEFAULT_HOSE_COUNT,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -62,7 +67,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["doorCount"] === "number" &&
     typeof candidate["playerCount"] === "number" &&
     typeof candidate["maxHoseLength"] === "number" &&
-    typeof candidate["hoseSprayRange"] === "number"
+    typeof candidate["hoseSprayRange"] === "number" &&
+    typeof candidate["hoseCount"] === "number"
   );
 }
 
@@ -140,6 +146,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "hoseSprayRange", 1, 20, 1)
     .name("Hose spray range")
     .onChange(() => onChange?.());
+  const hoseCountController = gui
+    .add(gameSettings, "hoseCount", MIN_HOSE_COUNT, MAX_HOSE_COUNT, 1)
+    .name("Number of hoses")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -160,6 +170,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.playerCount = preset.playerCount;
     gameSettings.maxHoseLength = preset.maxHoseLength;
     gameSettings.hoseSprayRange = preset.hoseSprayRange;
+    gameSettings.hoseCount = preset.hoseCount;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -172,6 +183,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     playerCountController.updateDisplay();
     maxHoseLengthController.updateDisplay();
     hoseSprayRangeController.updateDisplay();
+    hoseCountController.updateDisplay();
 
     onChange?.();
   };
