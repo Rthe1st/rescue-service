@@ -26,19 +26,21 @@ where it isn't obvious, how it's represented in code.
   as one connected building. A room is enclosed in walls along its perimeter as soon as
   it's placed (`encloseRoom`), sealing it off from the rest of the map until a doorway is
   carved back through.
-- **Door** — one of the border wall segments that generation deliberately leaves open
-  (or reopens), so the outside of the map is reachable. The number of doors is the
-  `doorCount` option to `generateMap`, clamped to 1–10 (`MIN_DOOR_COUNT`/
-  `MAX_DOOR_COUNT`), defaulting to `DEFAULT_DOOR_COUNT`. `getDoorTiles` returns every
-  door as a set of border tile coordinates.
+- **Door** — a wall segment that generation deliberately leaves open (or reopens), so
+  tracked separately from an edge that was simply never walled (`GameMap.doors`, checked
+  via `hasDoor`/`getDoorSegments`). Doors come from three sources: front doors between a
+  room and the outer ring (`doorCount`, see below), connector doors carved by
+  `connectRoomsSteps` to guarantee every room reaches the network, and extra
+  room-to-room doors (`extraDoorPercent`, see below).
 - **Map generation** — the overall process in `generateMap`/`generateMapSteps`: open an
-  empty map, place rooms (sealing each one off as it's added), pick and open door tiles
-  on the border, then connect every room and door into a single reachable network by
-  carving the cheapest path between any two disconnected groups
-  (`connectRoomsSteps`/`carveShortestPathToOtherComponentSteps`) until only one remains.
-  `generateMapSteps` is a generator that yields a `GenerationStep` (a map snapshot plus a
-  description) after every meaningful change, which is what lets the map preview screen
-  animate generation instead of only showing the finished map.
+  empty map, place rooms (sealing each one off as it's added), pick and open front doors
+  between rooms and the ring, connect every room and door into a single reachable network
+  by carving the cheapest path between any two disconnected groups
+  (`connectRoomsSteps`/`carveShortestPathToOtherComponentSteps`) until only one remains,
+  then roll extra room-to-room doors (`placeExtraDoorsSteps`). `generateMapSteps` is a
+  generator that yields a `GenerationStep` (a map snapshot plus a description) after every
+  meaningful change, which is what lets the map preview screen animate generation instead
+  of only showing the finished map.
 - **Reachable tile** — a tile connected to some starting tile by a chain of open
   (non-walled) edges, computed by `findReachableTiles`. Used to make sure the starting
   fire is somewhere the player can actually walk to.
@@ -128,6 +130,10 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
   animated generation steps in `MapPreviewScene`; smaller is faster.
 - **`doorCount`** ("Number of doors") — how many border walls generation opens into front
   doors; see **Door** above.
+- **`extraDoorPercent`** ("Extra room-to-room door chance (%)") — for every pair of rooms
+  that share a wall with no door on it yet, the percent chance (0-100) that generation
+  carves one extra door somewhere along that shared wall, on top of any front or connector
+  doors already placed; see **Door** above.
 - **`playerCount`** ("Number of players") — how many player characters are in play; see
   **Player character** above.
 - **`maxHoseLength`** ("Max hose length") — the most tiles the fire hose can occupy at

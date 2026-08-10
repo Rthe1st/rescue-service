@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DOOR_COUNT,
+  DEFAULT_EXTRA_DOOR_PERCENT,
   MAX_DOOR_COUNT,
   canPass,
   computeGrassTiles,
@@ -15,6 +16,7 @@ import {
   isInAnyRoom,
   isInBounds,
   isOuterRing,
+  placeExtraDoors,
   placeFrontDoors,
   placeRooms,
   type GameMap,
@@ -64,6 +66,19 @@ describe("generateMap", () => {
   it("defaults to 2 doors when doorCount is not specified", () => {
     expect(DEFAULT_DOOR_COUNT).toBe(2);
   });
+
+  it("defaults to a 30% extra-door chance when extraDoorPercent is not specified", () => {
+    expect(DEFAULT_EXTRA_DOOR_PERCENT).toBe(30);
+  });
+
+  it.each([-20, 0, 55, 100, 150])(
+    "doesn't throw for out-of-range or in-range extraDoorPercent (%i)",
+    (extraDoorPercent) => {
+      expect(() =>
+        generateMap(20, 16, { extraDoorPercent, random: mulberry32(extraDoorPercent + 20000) })
+      ).not.toThrow();
+    }
+  );
 
   it.each([-5, 0, 100, 3])(
     "produces at least one door regardless of doorCount (%i), whether clamped or in range",
@@ -260,6 +275,58 @@ describe("placeFrontDoors", () => {
     for (const segment of getDoorSegments(map)) {
       expect(isFrontDoorSegment(map, segment)).toBe(true);
     }
+  });
+});
+
+function roomIndexAt(map: GameMap, x: number, y: number): number {
+  return map.rooms.findIndex(
+    (room) => x >= room.left && x < room.left + room.width && y >= room.top && y < room.top + room.height
+  );
+}
+
+describe("placeExtraDoors", () => {
+  it("adds no doors when extraDoorPercent is 0", () => {
+    const map = roomMap(30, 20, 20500);
+    placeExtraDoors(map, 0, mulberry32(20501));
+    expect(getDoorSegments(map).length).toBe(0);
+  });
+
+  it("adds a door to every room-to-room shared wall when extraDoorPercent is 100", () => {
+    for (let seed = 0; seed < 5; seed++) {
+      const map = roomMap(30, 20, seed + 21000);
+      const touchingPairs = map.rooms.reduce((count, room, i) => {
+        return (
+          count +
+          map.rooms.slice(i + 1).filter((other) => roomsTouch(room, other)).length
+        );
+      }, 0);
+
+      placeExtraDoors(map, 100, mulberry32(seed + 21500));
+      expect(getDoorSegments(map).length).toBe(touchingPairs);
+    }
+  });
+
+  it("only ever opens a wall directly between two different rooms", () => {
+    const map = roomMap(30, 20, 22000);
+    placeExtraDoors(map, 100, mulberry32(22001));
+    expect(getDoorSegments(map).length).toBeGreaterThan(0);
+
+    for (const segment of getDoorSegments(map)) {
+      const roomA = roomIndexAt(map, segment.x1, segment.y1);
+      const roomB = roomIndexAt(map, segment.x2, segment.y2);
+      expect(roomA).toBeGreaterThanOrEqual(0);
+      expect(roomB).toBeGreaterThanOrEqual(0);
+      expect(roomA).not.toBe(roomB);
+    }
+  });
+
+  it("never adds a second door between a pair of rooms that already has one", () => {
+    const map = roomMap(30, 20, 23000);
+    placeExtraDoors(map, 100, mulberry32(23001));
+    const firstPassCount = getDoorSegments(map).length;
+
+    placeExtraDoors(map, 100, mulberry32(23002));
+    expect(getDoorSegments(map).length).toBe(firstPassCount);
   });
 });
 

@@ -1,5 +1,12 @@
 import GUI from "lil-gui";
-import { DEFAULT_DOOR_COUNT, MAX_DOOR_COUNT, MIN_DOOR_COUNT } from "./mapGeneration";
+import {
+  DEFAULT_DOOR_COUNT,
+  MAX_DOOR_COUNT,
+  MIN_DOOR_COUNT,
+  DEFAULT_EXTRA_DOOR_PERCENT,
+  MAX_EXTRA_DOOR_PERCENT,
+  MIN_EXTRA_DOOR_PERCENT,
+} from "./mapGeneration";
 
 export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
@@ -27,6 +34,7 @@ export interface GameParams {
   editMapsBeforePlay: boolean;
   generationStepDelayMs: number;
   doorCount: number;
+  extraDoorPercent: number;
   playerCount: number;
   maxHoseLength: number;
   hoseSprayRange: number;
@@ -42,6 +50,7 @@ export const gameSettings: GameParams = {
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
   generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
   doorCount: DEFAULT_DOOR_COUNT,
+  extraDoorPercent: DEFAULT_EXTRA_DOOR_PERCENT,
   playerCount: DEFAULT_PLAYER_COUNT,
   maxHoseLength: DEFAULT_MAX_HOSE_LENGTH,
   hoseSprayRange: DEFAULT_HOSE_SPRAY_RANGE,
@@ -60,6 +69,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
     typeof candidate["generationStepDelayMs"] === "number" &&
     typeof candidate["doorCount"] === "number" &&
+    typeof candidate["extraDoorPercent"] === "number" &&
     typeof candidate["playerCount"] === "number" &&
     typeof candidate["maxHoseLength"] === "number" &&
     typeof candidate["hoseSprayRange"] === "number"
@@ -128,6 +138,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "doorCount", MIN_DOOR_COUNT, MAX_DOOR_COUNT, 1)
     .name("Number of doors")
     .onChange(() => onChange?.());
+  const extraDoorPercentController = gui
+    .add(gameSettings, "extraDoorPercent", MIN_EXTRA_DOOR_PERCENT, MAX_EXTRA_DOOR_PERCENT, 1)
+    .name("Extra room-to-room door chance (%)")
+    .onChange(() => onChange?.());
   const playerCountController = gui
     .add(gameSettings, "playerCount", MIN_PLAYER_COUNT, MAX_PLAYER_COUNT, 1)
     .name("Number of players")
@@ -157,6 +171,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
     gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
     gameSettings.doorCount = preset.doorCount;
+    gameSettings.extraDoorPercent = preset.extraDoorPercent;
     gameSettings.playerCount = preset.playerCount;
     gameSettings.maxHoseLength = preset.maxHoseLength;
     gameSettings.hoseSprayRange = preset.hoseSprayRange;
@@ -169,6 +184,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     editMapsBeforePlayController.updateDisplay();
     generationStepDelayController.updateDisplay();
     doorCountController.updateDisplay();
+    extraDoorPercentController.updateDisplay();
     playerCountController.updateDisplay();
     maxHoseLengthController.updateDisplay();
     hoseSprayRangeController.updateDisplay();

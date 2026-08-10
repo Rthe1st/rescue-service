@@ -131,6 +131,7 @@ export class GameScene extends Phaser.Scene {
   private phaseTimerMs = this.firefightingDurationMs;
   private spreadDirections = gameSettings.spreadDirections;
   private doorCount = gameSettings.doorCount;
+  private extraDoorPercent = gameSettings.extraDoorPercent;
   private gameOver = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
@@ -234,7 +235,10 @@ export class GameScene extends Phaser.Scene {
     this.applySettings();
     this.setMap(
       this.providedMap ??
-        generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount })
+        generateMap(this.gridSize, this.gridSize, {
+          doorCount: this.doorCount,
+          extraDoorPercent: this.extraDoorPercent,
+        })
     );
     this.providedMap = undefined;
     this.startRound();
@@ -262,6 +266,7 @@ export class GameScene extends Phaser.Scene {
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
     this.doorCount = gameSettings.doorCount;
+    this.extraDoorPercent = gameSettings.extraDoorPercent;
     this.maxHoseLength = gameSettings.maxHoseLength;
     this.hoseSprayRange = gameSettings.hoseSprayRange;
   }
@@ -375,14 +380,21 @@ export class GameScene extends Phaser.Scene {
   private setupDebugGui(): void {
     const gui = createSettingsGui(() => {
       const previousDoorCount = this.doorCount;
+      const previousExtraDoorPercent = this.extraDoorPercent;
       const previousPlayerCount = this.players.length;
       this.applySettings();
       if (
         this.map.width !== this.gridSize ||
         this.map.height !== this.gridSize ||
-        this.doorCount !== previousDoorCount
+        this.doorCount !== previousDoorCount ||
+        this.extraDoorPercent !== previousExtraDoorPercent
       ) {
-        this.setMap(generateMap(this.gridSize, this.gridSize, { doorCount: this.doorCount }));
+        this.setMap(
+          generateMap(this.gridSize, this.gridSize, {
+            doorCount: this.doorCount,
+            extraDoorPercent: this.extraDoorPercent,
+          })
+        );
         this.startRound();
       } else if (gameSettings.playerCount !== previousPlayerCount) {
         this.startRound();
