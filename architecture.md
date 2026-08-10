@@ -81,6 +81,11 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   its passable neighbors.
 - Both moving onto a flame and a flame spreading onto the player's tile call `endGame()`,
   which freezes the round and shows the game-over status text.
+- The fire hose (`GameScene.hose`, `{ path, carriedBy }`) is placed once per round
+  (`placeHoseAtStart`) and otherwise only changes in response to the hose button
+  (`toggleHoseCarry`) and, while carried, `movePlayer` calling `extendOrRetractHose` before
+  committing each move - growing or shrinking `hose.path` rather than living on the map
+  data itself, so it's drawn as an overlay (`drawHose`) independent of tile rendering.
 
 ## Settings
 

@@ -66,6 +66,17 @@ where it isn't obvious, how it's represented in code.
   happens by moving into a flame during firefighting or by a flame spreading onto the
   player's tile during the burn phase (`endGame`). Movement stops and the status text
   shows "Caught in the flames! Game Over".
+- **Fire hose** — an object a player character can carry, tracked as `GameScene.hose`.
+  Each round it starts lying on a single random outer-ring tile (`placeHoseAtStart`).
+  Standing on either end of the hose and pressing the "Pick up hose"/"Drop hose" button
+  (in the center of the D-pad) toggles whether the active player is carrying it
+  (`hoseAction`/`toggleHoseCarry`). While carried, each move extends the hose through the
+  tile just walked into, unless that tile is the one the hose's carried end just came
+  from, in which case the hose retracts there instead (`extendOrRetractHose`). A hose can
+  never occupy more than 10 tiles - once at that length, the carrying player can't move to
+  a new tile until they either drop the hose or retract it. Dropping leaves the hose lying
+  in place until someone picks it up again. Rendered as a thick red line through every
+  tile it occupies, with a small circle marking its loose (pickup) end.
 - **Round** — one play-through from a freshly-placed player and a freshly-ignited fire
   (`startRound`) until game over. Starting a new game, or changing the grid size in
   settings mid-game, starts a new round on a newly generated map.
