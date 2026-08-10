@@ -101,7 +101,10 @@ Presets are named snapshots of the whole `GameParams` object, validated with
 - **Layout tests** (`npm run test:layout`, Playwright) load the built app in a real
   browser at different viewport sizes/orientations and assert on scene element bounds
   (exposed via each scene's `getTestBounds()`) to catch elements clipping off-screen or
-  overlapping.
+  overlapping. `playwright.config.ts` launches the sandboxed dev environment's
+  pre-installed Chromium directly (via `PLAYWRIGHT_BROWSERS_PATH`) when present, since
+  its pinned revision can lag behind the one this project's Playwright version expects
+  to download; CI is unaffected, as it always installs a matching browser fresh.
 - Every push additionally triggers a Cloudflare Pages deployment and a check that the
   deployed page loads with no console errors (`.github/workflows/cloudflare-pages-check.yml`,
   `scripts/check-deployment.mjs`).
