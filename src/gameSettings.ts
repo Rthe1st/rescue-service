@@ -7,6 +7,7 @@ import {
   MIN_DOOR_COUNT,
   MIN_EXTRA_DOOR_PERCENT,
 } from "./mapGeneration";
+import { LINE_OF_SIGHT_MODES, type LineOfSightMode } from "./visibility";
 
 export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
@@ -29,6 +30,7 @@ export const DEFAULT_FOG_OF_WAR_MEMORY_MOVES = 0;
 export const MIN_FOG_OF_WAR_MEMORY_MOVES = 0;
 export const MAX_FOG_OF_WAR_MEMORY_MOVES = 20;
 export const DEFAULT_FOG_OF_WAR_STATIC_MEMORY = false;
+export const DEFAULT_LINE_OF_SIGHT_MODE: LineOfSightMode = "2d-plus";
 
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
@@ -50,6 +52,7 @@ export interface GameParams {
   fogOfWarEnabled: boolean;
   fogOfWarMemoryMoves: number;
   fogOfWarStaticMemory: boolean;
+  lineOfSightMode: LineOfSightMode;
 }
 
 export const gameSettings: GameParams = {
@@ -70,6 +73,7 @@ export const gameSettings: GameParams = {
   fogOfWarEnabled: DEFAULT_FOG_OF_WAR_ENABLED,
   fogOfWarMemoryMoves: DEFAULT_FOG_OF_WAR_MEMORY_MOVES,
   fogOfWarStaticMemory: DEFAULT_FOG_OF_WAR_STATIC_MEMORY,
+  lineOfSightMode: DEFAULT_LINE_OF_SIGHT_MODE,
 };
 
 function isGameParams(value: unknown): value is GameParams {
@@ -92,7 +96,9 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["hoseCount"] === "number" &&
     typeof candidate["fogOfWarEnabled"] === "boolean" &&
     typeof candidate["fogOfWarMemoryMoves"] === "number" &&
-    typeof candidate["fogOfWarStaticMemory"] === "boolean"
+    typeof candidate["fogOfWarStaticMemory"] === "boolean" &&
+    typeof candidate["lineOfSightMode"] === "string" &&
+    LINE_OF_SIGHT_MODES.includes(candidate["lineOfSightMode"] as LineOfSightMode)
   );
 }
 
@@ -190,6 +196,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .add(gameSettings, "fogOfWarStaticMemory")
     .name("Fog of war static memory")
     .onChange(() => onChange?.());
+  const lineOfSightModeController = gui
+    .add(gameSettings, "lineOfSightMode", LINE_OF_SIGHT_MODES)
+    .name("Line of sight mode")
+    .onChange(() => onChange?.());
 
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
@@ -215,6 +225,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.fogOfWarEnabled = preset.fogOfWarEnabled;
     gameSettings.fogOfWarMemoryMoves = preset.fogOfWarMemoryMoves;
     gameSettings.fogOfWarStaticMemory = preset.fogOfWarStaticMemory;
+    gameSettings.lineOfSightMode = preset.lineOfSightMode;
     gridController.updateDisplay();
     scaleController.updateDisplay();
     sizeController.updateDisplay();
@@ -232,6 +243,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     fogOfWarEnabledController.updateDisplay();
     fogOfWarMemoryMovesController.updateDisplay();
     fogOfWarStaticMemoryController.updateDisplay();
+    lineOfSightModeController.updateDisplay();
 
     onChange?.();
   };
