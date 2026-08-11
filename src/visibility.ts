@@ -7,18 +7,19 @@ export interface Point {
 
 /**
  * How much of the map counts as "visible" from a player's position:
- * - `"2d"` - a true 2D line of sight to every tile with a clear, unobstructed straight line
- *   from the player's own tile, whether or not they're in a room.
+ * - `"bresenham"` - a true 2D line of sight to every tile with a clear, unobstructed straight
+ *   line from the player's own tile, whether or not they're in a room (named for the
+ *   Bresenham line-walk algorithm it's computed with - see `hasLineOfSight`).
  * - `"room"` - if the player is in a room, the entire room (regardless of where in it
  *   they're standing) and nothing beyond it; if not, the entire outdoor area (every tile
  *   reachable from the outer ring without passing through a room - see `isGrass` in
  *   `mapGeneration.ts`) rather than only what's in a direct line.
- * - `"2d-plus"` - the union of both: `"2d"`'s line of sight, plus the player's entire
- *   current room if they're standing in one.
+ * - `"bresenham-plus"` - the union of both: `"bresenham"`'s line of sight, plus the player's
+ *   entire current room if they're standing in one.
  */
-export type LineOfSightMode = "2d" | "room" | "2d-plus";
+export type LineOfSightMode = "bresenham" | "room" | "bresenham-plus";
 
-export const LINE_OF_SIGHT_MODES: readonly LineOfSightMode[] = ["2d", "room", "2d-plus"];
+export const LINE_OF_SIGHT_MODES: readonly LineOfSightMode[] = ["bresenham", "room", "bresenham-plus"];
 
 /** The room (if any) containing (x, y). */
 export function roomAt(map: GameMap, x: number, y: number): Room | undefined {
@@ -40,7 +41,7 @@ export function computeVisibleTiles(map: GameMap, player: Point, mode: LineOfSig
   }
 
   const lineOfSight = computeLineOfSightTiles(map, player);
-  if (mode === "2d" || !room) return lineOfSight;
+  if (mode === "bresenham" || !room) return lineOfSight;
 
   const visible = new Set(lineOfSight);
   for (const key of roomTiles(room)) visible.add(key);

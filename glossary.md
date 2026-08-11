@@ -104,9 +104,10 @@ where it isn't obvious, how it's represented in code.
   currently *visible*, per `lineOfSightMode` (see `computeVisibleTiles`/
   `computeVisibleTilesForAll` in `src/visibility.ts`, which multiple player characters
   combine by union):
-  - `"2d"` — a true line of sight to every tile with a clear, unobstructed straight line
-    from a player character's own tile, in any direction (not just the 4 cardinal ones,
-    since standing outdoors is open ground rather than a corridor). Since rooms are always
+  - `"bresenham"` — a true line of sight to every tile with a clear, unobstructed straight
+    line from a player character's own tile, in any direction (not just the 4 cardinal ones,
+    since standing outdoors is open ground rather than a corridor) - named for the
+    Bresenham line-walk algorithm `hasLineOfSight` traces it with. Since rooms are always
     convex rectangles with no internal walls, this already reveals a room's every tile once
     a player character is standing in any part of it - not as a special case, just because
     nothing blocks the sight line.
@@ -114,10 +115,11 @@ where it isn't obvious, how it's represented in code.
     if not in a room, the entire outdoor area (every tile reachable from the outer ring
     without passing through a room - see `isGrass`/`GameMap.grass` in `mapGeneration.ts`)
     rather than only a direct line of sight.
-  - `"2d-plus"` — the union of both: `"2d"`'s line of sight, plus the player character's
-    entire current room. In practice this only ever adds anything beyond what `"2d"` already
-    shows if a future change gives rooms a non-convex shape or internal walls; today the two
-    modes coincide while standing in a room, for the same reason `"2d"` already reveals it.
+  - `"bresenham-plus"` — the union of both: `"bresenham"`'s line of sight, plus the player
+    character's entire current room. In practice this only ever adds anything beyond what
+    `"bresenham"` already shows if a future change gives rooms a non-convex shape or
+    internal walls; today the two modes coincide while standing in a room, for the same
+    reason `"bresenham"` already reveals it.
   Everything else is either **memorized** or **fogged**:
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -
@@ -129,7 +131,11 @@ where it isn't obvious, how it's represented in code.
     tile still shows its true, live state (e.g. fire that has since spread there). With
     `fogOfWarStaticMemory` on, a memorized tile instead renders whatever the *most recent*
     remembered snapshot saw there - frozen until a player character can see it again, which
-    both re-reveals it live and starts a fresh snapshot going forward.
+    both re-reveals it live and starts a fresh snapshot going forward. Either way, a
+    memorized-but-not-currently-visible tile also gets a translucent grey overlay drawn over
+    it (a separate `GameScene.memoryOverlays` rectangle per tile, at `memCellOpacity`), so
+    it always reads as "remembered, not seen right now" even when rendered at its true live
+    state.
   - Any tile that's neither currently visible nor memorized is fogged: rendered as a
     light grey (`FOG_COLOR`) regardless of what's actually there.
   Walls and doors are always drawn regardless of fog, since they're part of the building's
@@ -195,6 +201,10 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`fogOfWarStaticMemory`** ("Fog of war static memory") — whether a memorized-but-not-
   currently-visible tile renders a frozen snapshot of its last-seen fire state instead of
   its true, live state; see **Fog of war** above.
-- **`lineOfSightMode`** ("Line of sight mode") — which of `"2d"`, `"room"`, or `"2d-plus"`
-  determines what's currently visible; defaults to `DEFAULT_LINE_OF_SIGHT_MODE` (`"2d-plus"`);
-  see **Fog of war** above.
+- **`lineOfSightMode`** ("Line of sight mode") — which of `"bresenham"`, `"room"`, or
+  `"bresenham-plus"` determines what's currently visible; defaults to
+  `DEFAULT_LINE_OF_SIGHT_MODE` (`"bresenham-plus"`); see **Fog of war** above.
+- **`memCellOpacity`** ("Mem cell opacity (%)") — the opacity, as a percentage, of the grey
+  overlay drawn over memorized-but-not-currently-visible tiles; clamped to 0–100
+  (`MIN_MEM_CELL_OPACITY`/`MAX_MEM_CELL_OPACITY`), defaulting to `DEFAULT_MEM_CELL_OPACITY`
+  (50); see **Fog of war** above.
