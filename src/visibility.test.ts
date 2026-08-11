@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOpenMap, type GameMap, type Room } from "./mapGeneration";
+import { computeGrassTiles, createOpenMap, type GameMap, type Room } from "./mapGeneration";
 import { computeVisibleTiles, computeVisibleTilesForAll, pointKey, roomAt } from "./visibility";
 
 function addRoom(map: GameMap, room: Room): Room {
@@ -47,91 +47,144 @@ describe("roomAt", () => {
 });
 
 describe("computeVisibleTiles", () => {
-  it("reveals every tile of the room the player is standing in, even far from them", () => {
-    const map = createOpenMap(10, 10);
-    const room = addRoom(map, { left: 2, top: 2, width: 4, height: 4 });
+  describe('"2d" mode', () => {
+    it("reveals a whole room too, but only because its open interior has nothing to block sight - not as a special case", () => {
+      const map = createOpenMap(10, 10);
+      const room = addRoom(map, { left: 2, top: 2, width: 4, height: 4 });
 
-    const visible = computeVisibleTiles(map, { x: room.left, y: room.top });
-    for (let y = room.top; y < room.top + room.height; y++) {
-      for (let x = room.left; x < room.left + room.width; x++) {
-        expect(visible.has(pointKey(x, y))).toBe(true);
+      // Rooms are always convex rectangles with no internal walls, so true line of sight
+      // from any point in one already reaches every other point in it - this coincides
+      // with "room" mode's explicit full-reveal, but for a different reason (nothing to
+      // block it, vs. deliberately ignoring walls within the room).
+      const visible = computeVisibleTiles(map, { x: room.left, y: room.top }, "2d");
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(true);
+        }
       }
-    }
+    });
+
+    it("does not see past an unopened wall", () => {
+      const map = createOpenMap(10, 10);
+      addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
+
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
+      expect(visible.has(pointKey(5, 2))).toBe(false);
+    });
+
+    it("sees a straight line of sight down an open corridor when not in any room", () => {
+      const map = createOpenMap(10, 1);
+      const visible = computeVisibleTiles(map, { x: 5, y: 0 }, "2d");
+      for (let x = 0; x < 10; x++) {
+        expect(visible.has(pointKey(x, 0))).toBe(true);
+      }
+    });
+
+    it("sees any outdoor tile with a clear line, not just the 4 cardinal directions", () => {
+      const map = createOpenMap(10, 10);
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
+      // (7, 5) is off every cardinal ray from (2, 2) - only reachable with true 2D sight.
+      expect(visible.has(pointKey(7, 5))).toBe(true);
+    });
+
+    it("still sees around a single solid corner (one detour open is enough)", () => {
+      const map = createOpenMap(5, 5);
+      // Wall off (1,0)-(1,1) only; the (0,0)->(0,1)->(1,1) detour stays open.
+      map.walls.add("1,0|1,1");
+
+      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "2d");
+      expect(visible.has(pointKey(1, 1))).toBe(true);
+    });
+
+    it("is blocked when both detours around a diagonal corner are walled", () => {
+      const map = createOpenMap(5, 5);
+      // Wall off both edges leading into (1,1) from its orthogonal neighbors.
+      map.walls.add("1,0|1,1");
+      map.walls.add("0,1|1,1");
+
+      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "2d");
+      expect(visible.has(pointKey(1, 1))).toBe(false);
+    });
+
+    it("includes just the player's own tile when they have nowhere open to look", () => {
+      const isolated = createOpenMap(1, 1);
+      const visible = computeVisibleTiles(isolated, { x: 0, y: 0 }, "2d");
+      expect(visible).toEqual(new Set([pointKey(0, 0)]));
+    });
+
+    it("from outdoors, sees through an open door but not through a solid wall elsewhere", () => {
+      const map = createOpenMap(12, 10);
+      addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
+      openDoor(map, 2, 3, 1, 3);
+      const roomB = addRoom(map, { left: 8, top: 2, width: 3, height: 3 });
+
+      const visible = computeVisibleTiles(map, { x: 0, y: 3 }, "2d");
+      expect(visible.has(pointKey(2, 3))).toBe(true);
+      expect(visible.has(pointKey(roomB.left + 1, roomB.top + 1))).toBe(false);
+    });
   });
 
-  it("includes just the player's own tile when they aren't in a room and have nowhere open to look", () => {
-    const isolated = createOpenMap(1, 1);
-    const visible = computeVisibleTiles(isolated, { x: 0, y: 0 });
-    expect(visible).toEqual(new Set([pointKey(0, 0)]));
+  describe('"room" mode', () => {
+    it("reveals every tile of the room the player is standing in, even far from them", () => {
+      const map = createOpenMap(10, 10);
+      const room = addRoom(map, { left: 2, top: 2, width: 4, height: 4 });
+
+      const visible = computeVisibleTiles(map, { x: room.left, y: room.top }, "room");
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(true);
+        }
+      }
+    });
+
+    it("does not extend sight beyond the room, even through an open door", () => {
+      const map = createOpenMap(10, 10);
+      const room = addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
+      openDoor(map, 4, 3, 5, 3);
+
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "room");
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(true);
+        }
+      }
+      // Just past the doorway, but outside the room itself - not part of "the room".
+      expect(visible.has(pointKey(5, 3))).toBe(false);
+    });
+
+    it("reveals the entire outdoor area, not just a direct line of sight, when not in a room", () => {
+      const map = createOpenMap(10, 10);
+      addRoom(map, { left: 3, top: 3, width: 2, height: 2 });
+      map.grass = computeGrassTiles(map);
+
+      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "room");
+      expect(visible).toEqual(map.grass);
+      // The far corner of the ring, nowhere near a direct line from (0, 0), is still included.
+      expect(visible.has(pointKey(9, 9))).toBe(true);
+    });
   });
 
-  it("sees in a straight line out of a room through an open door, stopping at the next wall", () => {
-    const map = createOpenMap(10, 10);
-    addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
-    // Open a door on the room's right wall, at (4, 3) -> (5, 3).
-    openDoor(map, 4, 3, 5, 3);
+  describe('"2d-plus" mode', () => {
+    it("reveals the whole current room and sees beyond it through an open door", () => {
+      const map = createOpenMap(10, 10);
+      const room = addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
+      openDoor(map, 4, 3, 5, 3);
 
-    const visible = computeVisibleTiles(map, { x: 2, y: 2 });
-    expect(visible.has(pointKey(5, 3))).toBe(true);
-    expect(visible.has(pointKey(6, 3))).toBe(true);
-    expect(visible.has(pointKey(9, 3))).toBe(true);
-    // Off the line of sight - not visible.
-    expect(visible.has(pointKey(6, 4))).toBe(false);
-  });
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d-plus");
+      for (let y = room.top; y < room.top + room.height; y++) {
+        for (let x = room.left; x < room.left + room.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(true);
+        }
+      }
+      expect(visible.has(pointKey(5, 3))).toBe(true);
+    });
 
-  it("does not see past an unopened wall", () => {
-    const map = createOpenMap(10, 10);
-    addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
-
-    const visible = computeVisibleTiles(map, { x: 2, y: 2 });
-    expect(visible.has(pointKey(5, 2))).toBe(false);
-  });
-
-  it("sees a straight line of sight down an open corridor when not in any room", () => {
-    const map = createOpenMap(10, 1);
-    const visible = computeVisibleTiles(map, { x: 5, y: 0 });
-    for (let x = 0; x < 10; x++) {
-      expect(visible.has(pointKey(x, 0))).toBe(true);
-    }
-  });
-
-  it("sees any outdoor tile with a clear line, not just the 4 cardinal directions", () => {
-    const map = createOpenMap(10, 10);
-    const visible = computeVisibleTiles(map, { x: 2, y: 2 });
-    // (7, 5) is off every cardinal ray from (2, 2) - only reachable with true 2D sight.
-    expect(visible.has(pointKey(7, 5))).toBe(true);
-  });
-
-  it("still sees around a single solid corner (one detour open is enough)", () => {
-    const map = createOpenMap(5, 5);
-    // Wall off (1,0)-(1,1) only; the (0,0)->(0,1)->(1,1) detour stays open.
-    map.walls.add("1,0|1,1");
-
-    const visible = computeVisibleTiles(map, { x: 0, y: 0 });
-    expect(visible.has(pointKey(1, 1))).toBe(true);
-  });
-
-  it("is blocked when both detours around a diagonal corner are walled", () => {
-    const map = createOpenMap(5, 5);
-    // Wall off both edges leading into (1,1) from its orthogonal neighbors.
-    map.walls.add("1,0|1,1");
-    map.walls.add("0,1|1,1");
-
-    const visible = computeVisibleTiles(map, { x: 0, y: 0 });
-    expect(visible.has(pointKey(1, 1))).toBe(false);
-  });
-
-  it("from outdoors, sees through an open door but not through a solid wall elsewhere", () => {
-    const map = createOpenMap(12, 10);
-    addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
-    // Open a door on the first room's left wall, at (2,3) -> (1,3).
-    openDoor(map, 2, 3, 1, 3);
-    // A second, doorless room further along - fully enclosed, nothing to see it through.
-    const roomB = addRoom(map, { left: 8, top: 2, width: 3, height: 3 });
-
-    const visible = computeVisibleTiles(map, { x: 0, y: 3 });
-    expect(visible.has(pointKey(2, 3))).toBe(true);
-    expect(visible.has(pointKey(roomB.left + 1, roomB.top + 1))).toBe(false);
+    it("behaves like 2d mode when not in a room", () => {
+      const map = createOpenMap(10, 10);
+      const twoD = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
+      const twoDPlus = computeVisibleTiles(map, { x: 2, y: 2 }, "2d-plus");
+      expect(twoDPlus).toEqual(twoD);
+    });
   });
 });
 
@@ -141,10 +194,14 @@ describe("computeVisibleTilesForAll", () => {
     const roomA = addRoom(map, { left: 1, top: 1, width: 2, height: 2 });
     const roomB = addRoom(map, { left: 6, top: 6, width: 2, height: 2 });
 
-    const visible = computeVisibleTilesForAll(map, [
-      { x: roomA.left, y: roomA.top },
-      { x: roomB.left, y: roomB.top },
-    ]);
+    const visible = computeVisibleTilesForAll(
+      map,
+      [
+        { x: roomA.left, y: roomA.top },
+        { x: roomB.left, y: roomB.top },
+      ],
+      "room"
+    );
 
     expect(visible.has(pointKey(roomA.left, roomA.top))).toBe(true);
     expect(visible.has(pointKey(roomB.left, roomB.top))).toBe(true);

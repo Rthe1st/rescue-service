@@ -101,13 +101,24 @@ where it isn't obvious, how it's represented in code.
   (`startRound`) until game over. Starting a new game, or changing the grid size in
   settings mid-game, starts a new round on a newly generated map.
 - **Fog of war** — when `fogOfWarEnabled`, tiles are only rendered with their true state if
-  currently *visible*: every tile of the room a player character is standing in, plus a
-  straight line of sight out through every door of that room; or, for a player character not
-  currently in a room, every tile anywhere on the map with a clear, unobstructed line of
-  sight from their own tile - not just the 4 cardinal directions, since standing outdoors is
-  open ground rather than a corridor (see `computeVisibleTiles`/`computeVisibleTilesForAll`
-  in `src/visibility.ts`, which multiple player characters combine by union). Everything
-  else is either **memorized** or **fogged**:
+  currently *visible*, per `lineOfSightMode` (see `computeVisibleTiles`/
+  `computeVisibleTilesForAll` in `src/visibility.ts`, which multiple player characters
+  combine by union):
+  - `"2d"` — a true line of sight to every tile with a clear, unobstructed straight line
+    from a player character's own tile, in any direction (not just the 4 cardinal ones,
+    since standing outdoors is open ground rather than a corridor). Since rooms are always
+    convex rectangles with no internal walls, this already reveals a room's every tile once
+    a player character is standing in any part of it - not as a special case, just because
+    nothing blocks the sight line.
+  - `"room"` — the entire room a player character is standing in and nothing beyond it, or,
+    if not in a room, the entire outdoor area (every tile reachable from the outer ring
+    without passing through a room - see `isGrass`/`GameMap.grass` in `mapGeneration.ts`)
+    rather than only a direct line of sight.
+  - `"2d-plus"` — the union of both: `"2d"`'s line of sight, plus the player character's
+    entire current room. In practice this only ever adds anything beyond what `"2d"` already
+    shows if a future change gives rooms a non-convex shape or internal walls; today the two
+    modes coincide while standing in a room, for the same reason `"2d"` already reveals it.
+  Everything else is either **memorized** or **fogged**:
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -
     `GameScene.visibilityHistory`, capped at the `fogOfWarMemoryMoves` most recent moves (0
@@ -184,3 +195,6 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`fogOfWarStaticMemory`** ("Fog of war static memory") — whether a memorized-but-not-
   currently-visible tile renders a frozen snapshot of its last-seen fire state instead of
   its true, live state; see **Fog of war** above.
+- **`lineOfSightMode`** ("Line of sight mode") — which of `"2d"`, `"room"`, or `"2d-plus"`
+  determines what's currently visible; defaults to `DEFAULT_LINE_OF_SIGHT_MODE` (`"2d-plus"`);
+  see **Fog of war** above.

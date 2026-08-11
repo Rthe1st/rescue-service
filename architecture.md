@@ -108,7 +108,10 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   straight line, stopping at the first wall, and extinguishing only the first (nearest)
   flame found along the way rather than every flame on the line.
 - Fog of war, when `fogOfWarEnabled`, changes what `squareFill` returns for a tile instead
-  of changing the tile set itself. Two separate steps drive it, split because they run on
+  of changing the tile set itself. What counts as visible is controlled by `lineOfSightMode`
+  (`"2d"`/`"room"`/`"2d-plus"`, a dropdown setting passed straight through to
+  `computeVisibleTiles`/`computeVisibleTilesForAll` - see **Fog of war** in `glossary.md` for
+  what each mode means). Two separate steps drive rendering, split because they run on
   different triggers: `refreshVisibleTiles` (called at the top of every `layout()`, and, on
   the movement fast path, right before `movePlayer` re-renders squares) recomputes
   `visibleTiles` from `computeVisibleTilesForAll`; `recordVisibilityForMemory` (called only

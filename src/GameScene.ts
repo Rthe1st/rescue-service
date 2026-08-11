@@ -159,6 +159,7 @@ export class GameScene extends Phaser.Scene {
   private fogOfWarEnabled = gameSettings.fogOfWarEnabled;
   private fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
   private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
+  private lineOfSightMode = gameSettings.lineOfSightMode;
   private visibleTiles = new Set<string>();
   private visibilityHistory: VisibilitySnapshot[] = [];
 
@@ -288,6 +289,7 @@ export class GameScene extends Phaser.Scene {
     this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
     this.fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
     this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
+    this.lineOfSightMode = gameSettings.lineOfSightMode;
   }
 
   private startRound(): void {
@@ -648,7 +650,13 @@ export class GameScene extends Phaser.Scene {
   // player actually moves (see its own comment for why).
   private refreshVisibleTiles(): void {
     this.visibleTiles = new Set(
-      [...computeVisibleTilesForAll(this.map, this.players.map((player) => ({ x: player.col, y: player.row })))].map(
+      [
+        ...computeVisibleTilesForAll(
+          this.map,
+          this.players.map((player) => ({ x: player.col, y: player.row })),
+          this.lineOfSightMode
+        ),
+      ].map(
         (key) => {
           const [x, y] = key.split(",").map(Number);
           return squareKey(y ?? 0, x ?? 0);
