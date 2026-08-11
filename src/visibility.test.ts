@@ -47,7 +47,7 @@ describe("roomAt", () => {
 });
 
 describe("computeVisibleTiles", () => {
-  describe('"2d" mode', () => {
+  describe('"bresenham" mode', () => {
     it("reveals a whole room too, but only because its open interior has nothing to block sight - not as a special case", () => {
       const map = createOpenMap(10, 10);
       const room = addRoom(map, { left: 2, top: 2, width: 4, height: 4 });
@@ -56,7 +56,7 @@ describe("computeVisibleTiles", () => {
       // from any point in one already reaches every other point in it - this coincides
       // with "room" mode's explicit full-reveal, but for a different reason (nothing to
       // block it, vs. deliberately ignoring walls within the room).
-      const visible = computeVisibleTiles(map, { x: room.left, y: room.top }, "2d");
+      const visible = computeVisibleTiles(map, { x: room.left, y: room.top }, "bresenham");
       for (let y = room.top; y < room.top + room.height; y++) {
         for (let x = room.left; x < room.left + room.width; x++) {
           expect(visible.has(pointKey(x, y))).toBe(true);
@@ -68,13 +68,13 @@ describe("computeVisibleTiles", () => {
       const map = createOpenMap(10, 10);
       addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
 
-      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "bresenham");
       expect(visible.has(pointKey(5, 2))).toBe(false);
     });
 
     it("sees a straight line of sight down an open corridor when not in any room", () => {
       const map = createOpenMap(10, 1);
-      const visible = computeVisibleTiles(map, { x: 5, y: 0 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 5, y: 0 }, "bresenham");
       for (let x = 0; x < 10; x++) {
         expect(visible.has(pointKey(x, 0))).toBe(true);
       }
@@ -82,7 +82,7 @@ describe("computeVisibleTiles", () => {
 
     it("sees any outdoor tile with a clear line, not just the 4 cardinal directions", () => {
       const map = createOpenMap(10, 10);
-      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "bresenham");
       // (7, 5) is off every cardinal ray from (2, 2) - only reachable with true 2D sight.
       expect(visible.has(pointKey(7, 5))).toBe(true);
     });
@@ -92,7 +92,7 @@ describe("computeVisibleTiles", () => {
       // Wall off (1,0)-(1,1) only; the (0,0)->(0,1)->(1,1) detour stays open.
       map.walls.add("1,0|1,1");
 
-      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "bresenham");
       expect(visible.has(pointKey(1, 1))).toBe(true);
     });
 
@@ -102,13 +102,13 @@ describe("computeVisibleTiles", () => {
       map.walls.add("1,0|1,1");
       map.walls.add("0,1|1,1");
 
-      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 0, y: 0 }, "bresenham");
       expect(visible.has(pointKey(1, 1))).toBe(false);
     });
 
     it("includes just the player's own tile when they have nowhere open to look", () => {
       const isolated = createOpenMap(1, 1);
-      const visible = computeVisibleTiles(isolated, { x: 0, y: 0 }, "2d");
+      const visible = computeVisibleTiles(isolated, { x: 0, y: 0 }, "bresenham");
       expect(visible).toEqual(new Set([pointKey(0, 0)]));
     });
 
@@ -118,7 +118,7 @@ describe("computeVisibleTiles", () => {
       openDoor(map, 2, 3, 1, 3);
       const roomB = addRoom(map, { left: 8, top: 2, width: 3, height: 3 });
 
-      const visible = computeVisibleTiles(map, { x: 0, y: 3 }, "2d");
+      const visible = computeVisibleTiles(map, { x: 0, y: 3 }, "bresenham");
       expect(visible.has(pointKey(2, 3))).toBe(true);
       expect(visible.has(pointKey(roomB.left + 1, roomB.top + 1))).toBe(false);
     });
@@ -164,13 +164,13 @@ describe("computeVisibleTiles", () => {
     });
   });
 
-  describe('"2d-plus" mode', () => {
+  describe('"bresenham-plus" mode', () => {
     it("reveals the whole current room and sees beyond it through an open door", () => {
       const map = createOpenMap(10, 10);
       const room = addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
       openDoor(map, 4, 3, 5, 3);
 
-      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "2d-plus");
+      const visible = computeVisibleTiles(map, { x: 2, y: 2 }, "bresenham-plus");
       for (let y = room.top; y < room.top + room.height; y++) {
         for (let x = room.left; x < room.left + room.width; x++) {
           expect(visible.has(pointKey(x, y))).toBe(true);
@@ -179,10 +179,10 @@ describe("computeVisibleTiles", () => {
       expect(visible.has(pointKey(5, 3))).toBe(true);
     });
 
-    it("behaves like 2d mode when not in a room", () => {
+    it("behaves like bresenham mode when not in a room", () => {
       const map = createOpenMap(10, 10);
-      const twoD = computeVisibleTiles(map, { x: 2, y: 2 }, "2d");
-      const twoDPlus = computeVisibleTiles(map, { x: 2, y: 2 }, "2d-plus");
+      const twoD = computeVisibleTiles(map, { x: 2, y: 2 }, "bresenham");
+      const twoDPlus = computeVisibleTiles(map, { x: 2, y: 2 }, "bresenham-plus");
       expect(twoDPlus).toEqual(twoD);
     });
   });

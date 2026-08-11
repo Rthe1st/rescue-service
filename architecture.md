@@ -109,7 +109,7 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   flame found along the way rather than every flame on the line.
 - Fog of war, when `fogOfWarEnabled`, changes what `squareFill` returns for a tile instead
   of changing the tile set itself. What counts as visible is controlled by `lineOfSightMode`
-  (`"2d"`/`"room"`/`"2d-plus"`, a dropdown setting passed straight through to
+  (`"bresenham"`/`"room"`/`"bresenham-plus"`, a dropdown setting passed straight through to
   `computeVisibleTiles`/`computeVisibleTilesForAll` - see **Fog of war** in `glossary.md` for
   what each mode means). Two separate steps drive rendering, split because they run on
   different triggers: `refreshVisibleTiles` (called at the top of every `layout()`, and, on
@@ -125,7 +125,12 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   `FOG_COLOR`, per tile. Because `movePlayer` otherwise only re-renders the two tiles a
   player left/entered, it has to fall back to `refreshAllSquareFills()` (every square, not
   just those two) whenever fog of war is on, since a single step can reveal or hide many
-  tiles' worth of line of sight at once.
+  tiles' worth of line of sight at once. A parallel `memoryOverlays` map of `Rectangle`s (one
+  per tile, created alongside `squares` in `createBoard`) renders a translucent grey filter,
+  at `memCellOpacity`, over any tile `isMemoryOnly` flags as memorized but not currently
+  visible - kept as a separate layer rather than baked into `squareFill`'s returned color so
+  it composites over whatever `squareFill` rendered (including `fogOfWarStaticMemory`'s
+  live-looking snapshot), instead of replacing it.
 
 ## Settings
 

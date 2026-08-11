@@ -27,6 +27,7 @@ const EMPTY_COLOR = 0xffffff;
 const OUTSIDE_COLOR = 0x2e7d32;
 const INACCESSIBLE_COLOR = 0x424242;
 const FOG_COLOR = 0xbdbdbd;
+const MEMORY_OVERLAY_COLOR = 0x616161;
 const WALL_COLOR = 0x212121;
 const DOOR_COLOR = 0x795548;
 const PLAYER_COLOR = 0x000000;
@@ -119,6 +120,7 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetX = 0;
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
+  private memoryOverlays = new Map<string, Phaser.GameObjects.Rectangle>();
   private wallGraphics: Phaser.GameObjects.Graphics | undefined;
   private controlButtons: Phaser.GameObjects.Text[] = [];
   private controlButtonsByName = new Map<string, Phaser.GameObjects.Text>();
@@ -160,6 +162,7 @@ export class GameScene extends Phaser.Scene {
   private fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
   private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
   private lineOfSightMode = gameSettings.lineOfSightMode;
+  private memCellOpacity = gameSettings.memCellOpacity;
   private visibleTiles = new Set<string>();
   private visibilityHistory: VisibilitySnapshot[] = [];
 
@@ -290,6 +293,7 @@ export class GameScene extends Phaser.Scene {
     this.fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
     this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
     this.lineOfSightMode = gameSettings.lineOfSightMode;
+    this.memCellOpacity = gameSettings.memCellOpacity;
   }
 
   private startRound(): void {
@@ -486,6 +490,8 @@ export class GameScene extends Phaser.Scene {
 
     for (const square of this.squares.values()) square.destroy();
     this.squares.clear();
+    for (const overlay of this.memoryOverlays.values()) overlay.destroy();
+    this.memoryOverlays.clear();
     for (const button of this.controlButtons) button.destroy();
     this.controlButtons = [];
     this.hoseButton?.destroy();
@@ -573,6 +579,20 @@ export class GameScene extends Phaser.Scene {
           .setStrokeStyle(1, 0x888888);
 
         this.squares.set(squareKey(row, col), square);
+
+        const overlay = this.add
+          .rectangle(
+            this.boardOffsetX + col * this.cellSize,
+            this.boardOffsetY + row * this.cellSize,
+            this.cellSize,
+            this.cellSize,
+            MEMORY_OVERLAY_COLOR
+          )
+          .setOrigin(0, 0)
+          .setVisible(this.isMemoryOnly(row, col))
+          .setAlpha(this.memCellOpacity / 100);
+
+        this.memoryOverlays.set(squareKey(row, col), overlay);
       }
     }
   }
@@ -699,6 +719,10 @@ export class GameScene extends Phaser.Scene {
     for (const [key, square] of this.squares) {
       const [row, col] = parseSquareKey(key);
       square.setFillStyle(this.squareFill(row, col));
+      this.memoryOverlays
+        .get(key)
+        ?.setVisible(this.isMemoryOnly(row, col))
+        .setAlpha(this.memCellOpacity / 100);
     }
   }
 
@@ -712,6 +736,16 @@ export class GameScene extends Phaser.Scene {
     if (!memory) return FOG_COLOR;
     if (!this.fogOfWarStaticMemory) return this.liveSquareFill(row, col);
     return memory.flames.has(key) ? FLAME_COLOR : this.liveSquareFill(row, col, true);
+  }
+
+  // A tile the grey memory overlay should cover: fog of war is on, it's not currently
+  // visible, but a past move remembers seeing it - covers both `fogOfWarStaticMemory` on and
+  // off, since even the live-rendered "just don't fog it" mode is still memory, not sight.
+  private isMemoryOnly(row: number, col: number): boolean {
+    if (!this.fogOfWarEnabled) return false;
+    const key = squareKey(row, col);
+    if (this.visibleTiles.has(key)) return false;
+    return this.findMemory(key) !== undefined;
   }
 
   private liveSquareFill(row: number, col: number, ignoreFlame = false): number {
