@@ -186,6 +186,72 @@ describe("computeVisibleTiles", () => {
       expect(twoDPlus).toEqual(twoD);
     });
   });
+
+  describe('"room-plus" mode', () => {
+    it("peeks through a door in a widening triangle, all the way to the far wall of the room beyond", () => {
+      const map = createOpenMap(12, 8);
+      const roomA = addRoom(map, { left: 1, top: 2, width: 3, height: 3 });
+      const roomB = addRoom(map, { left: 4, top: 1, width: 4, height: 5 });
+      openDoor(map, 3, 3, 4, 3);
+
+      const visible = computeVisibleTiles(map, { x: roomA.left, y: roomA.top }, "room-plus");
+
+      for (let y = roomA.top; y < roomA.top + roomA.height; y++) {
+        for (let x = roomA.left; x < roomA.left + roomA.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(true);
+        }
+      }
+      // Layer 0 (just past the door), 1, and 2 of the triangle.
+      expect(visible.has(pointKey(4, 3))).toBe(true);
+      expect(visible.has(pointKey(5, 2))).toBe(true);
+      expect(visible.has(pointKey(5, 3))).toBe(true);
+      expect(visible.has(pointKey(5, 4))).toBe(true);
+      expect(visible.has(pointKey(6, 1))).toBe(true);
+      expect(visible.has(pointKey(6, 5))).toBe(true);
+      // Reaches roomB's far wall (its rightmost column)...
+      expect(visible.has(pointKey(roomB.left + roomB.width - 1, 3))).toBe(true);
+      // ...but at that same layer, the triangle's corners that fall outside roomB's rows are
+      // excluded - it's clipped to the room, not just to the map edge.
+      expect(visible.has(pointKey(roomB.left + roomB.width - 1, 0))).toBe(false);
+      expect(visible.has(pointKey(roomB.left + roomB.width - 1, 6))).toBe(false);
+    });
+
+    it("does not peek through a second doorway into a room beyond the adjacent one", () => {
+      const map = createOpenMap(14, 8);
+      const roomA = addRoom(map, { left: 1, top: 2, width: 3, height: 3 });
+      addRoom(map, { left: 4, top: 1, width: 4, height: 5 });
+      const roomC = addRoom(map, { left: 8, top: 1, width: 3, height: 5 });
+      openDoor(map, 3, 3, 4, 3);
+      openDoor(map, 7, 3, 8, 3);
+
+      const visible = computeVisibleTiles(map, { x: roomA.left, y: roomA.top }, "room-plus");
+
+      for (let y = roomC.top; y < roomC.top + roomC.height; y++) {
+        for (let x = roomC.left; x < roomC.left + roomC.width; x++) {
+          expect(visible.has(pointKey(x, y))).toBe(false);
+        }
+      }
+    });
+
+    it("is just the room when none of its walls have a door", () => {
+      const map = createOpenMap(10, 10);
+      addRoom(map, { left: 2, top: 2, width: 3, height: 3 });
+
+      const withDoor = computeVisibleTiles(map, { x: 2, y: 2 }, "room");
+      const roomPlus = computeVisibleTiles(map, { x: 2, y: 2 }, "room-plus");
+      expect(roomPlus).toEqual(withDoor);
+    });
+
+    it("behaves like room mode when not in a room", () => {
+      const map = createOpenMap(10, 10);
+      addRoom(map, { left: 3, top: 3, width: 2, height: 2 });
+      map.grass = computeGrassTiles(map);
+
+      const room = computeVisibleTiles(map, { x: 0, y: 0 }, "room");
+      const roomPlus = computeVisibleTiles(map, { x: 0, y: 0 }, "room-plus");
+      expect(roomPlus).toEqual(room);
+    });
+  });
 });
 
 describe("computeVisibleTilesForAll", () => {

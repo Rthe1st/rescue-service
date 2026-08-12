@@ -1,4 +1,4 @@
-import { canPass, type GameMap, type Room } from "./mapGeneration";
+import { canPass, getDoorSegments, isInBounds, type GameMap, type Room } from "./mapGeneration";
 
 export interface Point {
   x: number;
@@ -16,28 +16,42 @@ export interface Point {
  *   `mapGeneration.ts`) rather than only what's in a direct line.
  * - `"bresenham-plus"` - the union of both: `"bresenham"`'s line of sight, plus the player's
  *   entire current room if they're standing in one.
+ * - `"room-plus"` - `"room"`'s reveal, plus a triangular "peek" through every door on the
+ *   current room's walls: the tile directly opposite the door, then the 3 tiles one step
+ *   further out, then 5 two steps out, and so on (see `doorConeTiles`). The peek only ever
+ *   reaches into the single room (or outdoor area) directly on the other side of a given
+ *   door - it stops at that space's own far walls rather than continuing through a second
+ *   doorway into a room beyond it.
  */
-export type LineOfSightMode = "bresenham" | "room" | "bresenham-plus";
+export type LineOfSightMode = "bresenham" | "room" | "bresenham-plus" | "room-plus";
 
-export const LINE_OF_SIGHT_MODES: readonly LineOfSightMode[] = ["bresenham", "room", "bresenham-plus"];
+export const LINE_OF_SIGHT_MODES: readonly LineOfSightMode[] = [
+  "bresenham",
+  "room",
+  "bresenham-plus",
+  "room-plus",
+];
 
 /** The room (if any) containing (x, y). */
 export function roomAt(map: GameMap, x: number, y: number): Room | undefined {
-  return map.rooms.find(
-    (room) =>
-      x >= room.left &&
-      x < room.left + room.width &&
-      y >= room.top &&
-      y < room.top + room.height
-  );
+  return map.rooms.find((room) => tileInRoom(room, x, y));
+}
+
+function tileInRoom(room: Room, x: number, y: number): boolean {
+  return x >= room.left && x < room.left + room.width && y >= room.top && y < room.top + room.height;
 }
 
 /** Tiles visible to a player standing at `player`, according to `mode` (see `LineOfSightMode`). */
 export function computeVisibleTiles(map: GameMap, player: Point, mode: LineOfSightMode): Set<string> {
   const room = roomAt(map, player.x, player.y);
 
-  if (mode === "room") {
-    return room ? roomTiles(room) : new Set(map.grass);
+  if (mode === "room" || mode === "room-plus") {
+    if (!room) return new Set(map.grass);
+    const visible = roomTiles(room);
+    if (mode === "room-plus") {
+      for (const key of doorPeekTiles(map, room)) visible.add(key);
+    }
+    return visible;
   }
 
   const lineOfSight = computeLineOfSightTiles(map, player);
@@ -55,6 +69,59 @@ function roomTiles(room: Room): Set<string> {
       tiles.add(pointKey(x, y));
     }
   }
+  return tiles;
+}
+
+/** The triangular door-peek tiles (see `LineOfSightMode`'s `"room-plus"` doc) for every door
+ * on `room`'s own walls. */
+function doorPeekTiles(map: GameMap, room: Room): Set<string> {
+  const tiles = new Set<string>();
+  for (const segment of getDoorSegments(map)) {
+    const oneIn = tileInRoom(room, segment.x1, segment.y1);
+    const otherIn = tileInRoom(room, segment.x2, segment.y2);
+    if (oneIn === otherIn) continue;
+
+    const inside = oneIn ? { x: segment.x1, y: segment.y1 } : { x: segment.x2, y: segment.y2 };
+    const outside = oneIn ? { x: segment.x2, y: segment.y2 } : { x: segment.x1, y: segment.y1 };
+    for (const key of doorConeTiles(map, inside, outside)) tiles.add(key);
+  }
+  return tiles;
+}
+
+/**
+ * Tiles visible by peeking straight through a single door from `inside` to `outside`, as an
+ * expanding triangle: `outside` itself (1 tile), then the row one step further out (3 tiles
+ * centered on the door's line), then two steps out (5 tiles), and so on. Bounded to whichever
+ * single room (or outdoor area) `outside` itself belongs to - once a layer's tiles would spill
+ * into a different room (through a second doorway) or off the edge of that space, that layer
+ * stops contributing and the peek ends there. Since rooms are always convex rectangles with no
+ * internal walls (see `"bresenham"` in `LineOfSightMode`'s doc), simply staying within the same
+ * room-membership as `outside` is enough to respect real walls too, without tracing them tile
+ * by tile.
+ */
+function doorConeTiles(map: GameMap, inside: Point, outside: Point): Set<string> {
+  const tiles = new Set<string>();
+  const dx = outside.x - inside.x;
+  const dy = outside.y - inside.y;
+  const perpX = -dy;
+  const perpY = dx;
+  const targetRoom = roomAt(map, outside.x, outside.y);
+  const maxLayers = Math.max(map.width, map.height);
+
+  for (let layer = 0; layer <= maxLayers; layer++) {
+    let addedAny = false;
+    for (let k = -layer; k <= layer; k++) {
+      const x = outside.x + dx * layer + perpX * k;
+      const y = outside.y + dy * layer + perpY * k;
+      if (!isInBounds(map, x, y)) continue;
+      if (roomAt(map, x, y) !== targetRoom) continue;
+
+      tiles.add(pointKey(x, y));
+      addedAny = true;
+    }
+    if (!addedAny) break;
+  }
+
   return tiles;
 }
 
