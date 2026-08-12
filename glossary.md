@@ -120,6 +120,13 @@ where it isn't obvious, how it's represented in code.
     `"bresenham"` already shows if a future change gives rooms a non-convex shape or
     internal walls; today the two modes coincide while standing in a room, for the same
     reason `"bresenham"` already reveals it.
+  - `"room-plus"` — `"room"`'s reveal, plus a triangular peek through every door on the
+    current room's walls: the single tile directly across the doorway, then the 3 tiles one
+    step further out, then 5 two steps out, and so on, widening as it goes (`doorConeTiles`
+    in `src/visibility.ts`). The peek only ever reaches as far as the one room (or outdoor
+    area) directly on the other side of that door - it's bounded to that space's own tiles,
+    so it stops at that room's far wall rather than continuing through a second doorway into
+    a room beyond it, even though the triangle would otherwise geometrically reach that far.
   Everything else is either **memorized** or **fogged**:
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -
@@ -201,8 +208,8 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`fogOfWarStaticMemory`** ("Fog of war static memory") — whether a memorized-but-not-
   currently-visible tile renders a frozen snapshot of its last-seen fire state instead of
   its true, live state; see **Fog of war** above.
-- **`lineOfSightMode`** ("Line of sight mode") — which of `"bresenham"`, `"room"`, or
-  `"bresenham-plus"` determines what's currently visible; defaults to
+- **`lineOfSightMode`** ("Line of sight mode") — which of `"bresenham"`, `"room"`,
+  `"bresenham-plus"`, or `"room-plus"` determines what's currently visible; defaults to
   `DEFAULT_LINE_OF_SIGHT_MODE` (`"bresenham-plus"`); see **Fog of war** above.
 - **`memCellOpacity`** ("Mem cell opacity (%)") — the opacity, as a percentage, of the grey
   overlay drawn over memorized-but-not-currently-visible tiles; clamped to 0–100
