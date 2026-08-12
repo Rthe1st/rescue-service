@@ -194,7 +194,8 @@ describe("computeVisibleTiles", () => {
       const roomB = addRoom(map, { left: 4, top: 1, width: 4, height: 5 });
       openDoor(map, 3, 3, 4, 3);
 
-      const visible = computeVisibleTiles(map, { x: roomA.left, y: roomA.top }, "room-plus");
+      // Standing in the door's own row - directly in line with it.
+      const visible = computeVisibleTiles(map, { x: roomA.left, y: 3 }, "room-plus");
 
       for (let y = roomA.top; y < roomA.top + roomA.height; y++) {
         for (let x = roomA.left; x < roomA.left + roomA.width; x++) {
@@ -224,13 +225,26 @@ describe("computeVisibleTiles", () => {
       openDoor(map, 3, 3, 4, 3);
       openDoor(map, 7, 3, 8, 3);
 
-      const visible = computeVisibleTiles(map, { x: roomA.left, y: roomA.top }, "room-plus");
+      const visible = computeVisibleTiles(map, { x: roomA.left, y: 3 }, "room-plus");
 
       for (let y = roomC.top; y < roomC.top + roomC.height; y++) {
         for (let x = roomC.left; x < roomC.left + roomC.width; x++) {
           expect(visible.has(pointKey(x, y))).toBe(false);
         }
       }
+    });
+
+    it("does not peek through a door the player isn't lined up with", () => {
+      const map = createOpenMap(12, 8);
+      const roomA = addRoom(map, { left: 1, top: 2, width: 3, height: 3 });
+      addRoom(map, { left: 4, top: 1, width: 4, height: 5 });
+      openDoor(map, 3, 3, 4, 3);
+
+      // Standing in the room, but a row off from the door - not a direct line through it.
+      const visible = computeVisibleTiles(map, { x: roomA.left, y: 2 }, "room-plus");
+
+      expect(visible.has(pointKey(4, 3))).toBe(false);
+      expect(visible.has(pointKey(5, 3))).toBe(false);
     });
 
     it("is just the room when none of its walls have a door", () => {

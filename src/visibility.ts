@@ -16,12 +16,14 @@ export interface Point {
  *   `mapGeneration.ts`) rather than only what's in a direct line.
  * - `"bresenham-plus"` - the union of both: `"bresenham"`'s line of sight, plus the player's
  *   entire current room if they're standing in one.
- * - `"room-plus"` - `"room"`'s reveal, plus a triangular "peek" through every door on the
- *   current room's walls: the tile directly opposite the door, then the 3 tiles one step
- *   further out, then 5 two steps out, and so on (see `doorConeTiles`). The peek only ever
- *   reaches into the single room (or outdoor area) directly on the other side of a given
- *   door - it stops at that space's own far walls rather than continuing through a second
- *   doorway into a room beyond it.
+ * - `"room-plus"` - `"room"`'s reveal, plus a triangular "peek" through any door the player
+ *   is standing in a direct line with - meaning lined up with the doorway along the axis
+ *   it's carved through, the way you'd only see down a hallway through an open doorway by
+ *   standing right in front of it, not from off to the side. The peek is the tile directly
+ *   opposite the door, then the 3 tiles one step further out, then 5 two steps out, and so
+ *   on (see `doorConeTiles`), and only ever reaches into the single room (or outdoor area)
+ *   directly on the other side of that door - it stops at that space's own far walls rather
+ *   than continuing through a second doorway into a room beyond it.
  */
 export type LineOfSightMode = "bresenham" | "room" | "bresenham-plus" | "room-plus";
 
@@ -49,7 +51,7 @@ export function computeVisibleTiles(map: GameMap, player: Point, mode: LineOfSig
     if (!room) return new Set(map.grass);
     const visible = roomTiles(room);
     if (mode === "room-plus") {
-      for (const key of doorPeekTiles(map, room)) visible.add(key);
+      for (const key of doorPeekTiles(map, room, player)) visible.add(key);
     }
     return visible;
   }
@@ -73,8 +75,8 @@ function roomTiles(room: Room): Set<string> {
 }
 
 /** The triangular door-peek tiles (see `LineOfSightMode`'s `"room-plus"` doc) for every door
- * on `room`'s own walls. */
-function doorPeekTiles(map: GameMap, room: Room): Set<string> {
+ * on `room`'s own walls that `player` is standing in a direct line with. */
+function doorPeekTiles(map: GameMap, room: Room, player: Point): Set<string> {
   const tiles = new Set<string>();
   for (const segment of getDoorSegments(map)) {
     const oneIn = tileInRoom(room, segment.x1, segment.y1);
@@ -83,6 +85,14 @@ function doorPeekTiles(map: GameMap, room: Room): Set<string> {
 
     const inside = oneIn ? { x: segment.x1, y: segment.y1 } : { x: segment.x2, y: segment.y2 };
     const outside = oneIn ? { x: segment.x2, y: segment.y2 } : { x: segment.x1, y: segment.y1 };
+
+    // A door carved through a vertical wall segment (inside/outside differ in x) reads as a
+    // horizontal hallway - only a player in that exact row is looking straight through it.
+    // A door through a horizontal wall segment works the same way, but by column.
+    const isHorizontalDoor = outside.x !== inside.x;
+    const inLine = isHorizontalDoor ? player.y === inside.y : player.x === inside.x;
+    if (!inLine) continue;
+
     for (const key of doorConeTiles(map, inside, outside)) tiles.add(key);
   }
   return tiles;

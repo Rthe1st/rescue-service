@@ -120,13 +120,17 @@ where it isn't obvious, how it's represented in code.
     `"bresenham"` already shows if a future change gives rooms a non-convex shape or
     internal walls; today the two modes coincide while standing in a room, for the same
     reason `"bresenham"` already reveals it.
-  - `"room-plus"` — `"room"`'s reveal, plus a triangular peek through every door on the
-    current room's walls: the single tile directly across the doorway, then the 3 tiles one
-    step further out, then 5 two steps out, and so on, widening as it goes (`doorConeTiles`
-    in `src/visibility.ts`). The peek only ever reaches as far as the one room (or outdoor
-    area) directly on the other side of that door - it's bounded to that space's own tiles,
-    so it stops at that room's far wall rather than continuing through a second doorway into
-    a room beyond it, even though the triangle would otherwise geometrically reach that far.
+  - `"room-plus"` — `"room"`'s reveal, plus a triangular peek through any door the player
+    character is standing in a direct line with - lined up with the doorway along the axis
+    it's carved through (its own row for a door in an east/west wall, its own column for a
+    door in a north/south wall), the way you'd only see down a hallway through an open
+    doorway by standing right in front of it, not from off to the side (`doorPeekTiles` in
+    `src/visibility.ts`). The peek itself is the single tile directly across the doorway,
+    then the 3 tiles one step further out, then 5 two steps out, and so on, widening as it
+    goes (`doorConeTiles`). It only ever reaches as far as the one room (or outdoor area)
+    directly on the other side of that door - it's bounded to that space's own tiles, so it
+    stops at that room's far wall rather than continuing through a second doorway into a
+    room beyond it, even though the triangle would otherwise geometrically reach that far.
   Everything else is either **memorized** or **fogged**:
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -
