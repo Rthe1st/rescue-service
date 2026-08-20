@@ -147,16 +147,16 @@ where it isn't obvious, how it's represented in code.
     `fogOfWarStaticMemory` on, a memorized tile instead renders whatever the *most recent*
     remembered snapshot saw there - frozen until a player character can see it again, which
     both re-reveals it live and starts a fresh snapshot going forward. Either way, a
-    memorized-but-not-currently-visible tile also gets a translucent grey overlay drawn over
-    it (a separate `GameScene.memoryOverlays` rectangle per tile, at `memCellOpacity`), so
-    it always reads as "remembered, not seen right now" even when rendered at its true live
-    state.
+    memorized-but-not-currently-visible tile also gets a translucent black overlay drawn
+    over it (a separate `GameScene.memoryOverlays` rectangle per tile, at `memCellOpacity`),
+    so it always reads as "remembered, not seen right now" even when rendered at its true
+    live state.
   - Any tile that's neither currently visible nor memorized is fogged: it still renders its
     terrain as normal (ignoring fire, since there's no way to know whether it's currently
-    burning), but with a second, lighter grey overlay on top, at `forgottenCellOpacity`
-    (`FOG_COLOR`, via the same `memoryOverlays` mechanism as memorized tiles, just a
-    different color/opacity pair) - distinguishable from a memorized tile's darker overlay,
-    and, at the default 100% opacity, fully opaque so it looks the same as before this
+    burning), but with the same black overlay on top at a separate opacity,
+    `forgottenCellOpacity` (via the same `memoryOverlays` mechanism as memorized tiles, just
+    a different opacity - the two are the same color, distinguishable only by how opaque
+    each is) - at the default 100% opacity, fully opaque so it looks the same as before this
     setting existed; lowering it lets the terrain show through.
   Walls and doors are always drawn regardless of fog, since they're part of the building's
   fixed structure rather than something that changes tile by tile.
@@ -230,12 +230,12 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`lineOfSightMode`** ("Line of sight mode") — which of `"bresenham"`, `"room"`,
   `"bresenham-plus"`, or `"room-plus"` determines what's currently visible; defaults to
   `DEFAULT_LINE_OF_SIGHT_MODE` (`"bresenham-plus"`); see **Fog of war** above.
-- **`memCellOpacity`** ("Mem cell opacity (%)") — the opacity, as a percentage, of the grey
+- **`memCellOpacity`** ("Mem cell opacity (%)") — the opacity, as a percentage, of the black
   overlay drawn over memorized-but-not-currently-visible tiles; clamped to 0–100
   (`MIN_MEM_CELL_OPACITY`/`MAX_MEM_CELL_OPACITY`), defaulting to `DEFAULT_MEM_CELL_OPACITY`
   (50); see **Fog of war** above.
 - **`forgottenCellOpacity`** ("Forgotten cell opacity (%)") — the opacity, as a percentage,
-  of the grey overlay drawn over tiles that are neither currently visible nor memorized
+  of the same black overlay, but for tiles that are neither currently visible nor memorized
   (never seen, or fallen out of the memory window); clamped to 0–100
   (`MIN_FORGOTTEN_CELL_OPACITY`/`MAX_FORGOTTEN_CELL_OPACITY`), defaulting to
   `DEFAULT_FORGOTTEN_CELL_OPACITY` (100, fully opaque); see **Fog of war** above.

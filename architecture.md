@@ -129,13 +129,13 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   back to `refreshAllSquareFills()` (every square, not just those two) whenever fog of war
   is on, since a single step can reveal or hide many tiles' worth of line of sight at once.
   A parallel `memoryOverlays` map of `Rectangle`s (one per tile, created alongside `squares`
-  in `createBoard`) renders a translucent grey filter over any tile `overlayFor` says isn't
-  currently visible - `MEMORY_OVERLAY_COLOR` at `memCellOpacity` for a memorized tile,
-  `FOG_COLOR` at `forgottenCellOpacity` for one that's neither visible nor memorized, so the
-  two states stay visually distinguishable and independently adjustable. Kept as a separate
-  layer rather than baked into `squareFill`'s returned color so it composites over whatever
-  `squareFill` rendered (including `fogOfWarStaticMemory`'s live-looking snapshot), instead
-  of replacing it.
+  in `createBoard`) renders a translucent black (`OVERLAY_COLOR`) filter over any tile
+  `overlayAlphaFor` says isn't currently visible - at `memCellOpacity` for a memorized tile,
+  `forgottenCellOpacity` for one that's neither visible nor memorized, so the two states
+  stay distinguishable by how opaque they are and independently adjustable. Kept as a
+  separate layer rather than baked into `squareFill`'s returned color so it composites over
+  whatever `squareFill` rendered (including `fogOfWarStaticMemory`'s live-looking snapshot),
+  instead of replacing it.
 
 ## Settings
 
