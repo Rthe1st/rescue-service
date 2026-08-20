@@ -30,6 +30,7 @@ export const DEFAULT_FOG_OF_WAR_MEMORY_MOVES = 0;
 export const MIN_FOG_OF_WAR_MEMORY_MOVES = 0;
 export const MAX_FOG_OF_WAR_MEMORY_MOVES = 20;
 export const DEFAULT_FOG_OF_WAR_STATIC_MEMORY = false;
+export const DEFAULT_FOG_OF_WAR_UNLIMITED_MEMORY = false;
 export const DEFAULT_LINE_OF_SIGHT_MODE: LineOfSightMode = "bresenham-plus";
 export const DEFAULT_MEM_CELL_OPACITY = 50;
 export const MIN_MEM_CELL_OPACITY = 0;
@@ -57,6 +58,7 @@ export interface GameParams {
   hoseCount: number;
   fogOfWarEnabled: boolean;
   fogOfWarMemoryMoves: number;
+  fogOfWarUnlimitedMemory: boolean;
   fogOfWarStaticMemory: boolean;
   lineOfSightMode: LineOfSightMode;
   memCellOpacity: number;
@@ -80,6 +82,7 @@ export const gameSettings: GameParams = {
   hoseCount: DEFAULT_HOSE_COUNT,
   fogOfWarEnabled: DEFAULT_FOG_OF_WAR_ENABLED,
   fogOfWarMemoryMoves: DEFAULT_FOG_OF_WAR_MEMORY_MOVES,
+  fogOfWarUnlimitedMemory: DEFAULT_FOG_OF_WAR_UNLIMITED_MEMORY,
   fogOfWarStaticMemory: DEFAULT_FOG_OF_WAR_STATIC_MEMORY,
   lineOfSightMode: DEFAULT_LINE_OF_SIGHT_MODE,
   memCellOpacity: DEFAULT_MEM_CELL_OPACITY,
@@ -106,6 +109,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["hoseCount"] === "number" &&
     typeof candidate["fogOfWarEnabled"] === "boolean" &&
     typeof candidate["fogOfWarMemoryMoves"] === "number" &&
+    typeof candidate["fogOfWarUnlimitedMemory"] === "boolean" &&
     typeof candidate["fogOfWarStaticMemory"] === "boolean" &&
     typeof candidate["lineOfSightMode"] === "string" &&
     LINE_OF_SIGHT_MODES.includes(candidate["lineOfSightMode"] as LineOfSightMode) &&
@@ -203,7 +207,15 @@ export function createSettingsGui(onChange?: () => void): GUI {
   const fogOfWarMemoryMovesController = gui
     .add(gameSettings, "fogOfWarMemoryMoves", MIN_FOG_OF_WAR_MEMORY_MOVES, MAX_FOG_OF_WAR_MEMORY_MOVES, 1)
     .name("Fog of war memory (moves)")
-    .onChange(() => onChange?.());
+    .onChange(() => onChange?.())
+    .disable(gameSettings.fogOfWarUnlimitedMemory);
+  const fogOfWarUnlimitedMemoryController = gui
+    .add(gameSettings, "fogOfWarUnlimitedMemory")
+    .name("Fog of war unlimited memory")
+    .onChange((unlimited: boolean) => {
+      fogOfWarMemoryMovesController.disable(unlimited);
+      onChange?.();
+    });
   const fogOfWarStaticMemoryController = gui
     .add(gameSettings, "fogOfWarStaticMemory")
     .name("Fog of war static memory")
@@ -244,6 +256,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.hoseCount = preset.hoseCount;
     gameSettings.fogOfWarEnabled = preset.fogOfWarEnabled;
     gameSettings.fogOfWarMemoryMoves = preset.fogOfWarMemoryMoves;
+    gameSettings.fogOfWarUnlimitedMemory = preset.fogOfWarUnlimitedMemory;
     gameSettings.fogOfWarStaticMemory = preset.fogOfWarStaticMemory;
     gameSettings.lineOfSightMode = preset.lineOfSightMode;
     gameSettings.memCellOpacity = preset.memCellOpacity;
@@ -264,6 +277,8 @@ export function createSettingsGui(onChange?: () => void): GUI {
     hoseCountController.updateDisplay();
     fogOfWarEnabledController.updateDisplay();
     fogOfWarMemoryMovesController.updateDisplay();
+    fogOfWarMemoryMovesController.disable(gameSettings.fogOfWarUnlimitedMemory);
+    fogOfWarUnlimitedMemoryController.updateDisplay();
     fogOfWarStaticMemoryController.updateDisplay();
     lineOfSightModeController.updateDisplay();
     memCellOpacityController.updateDisplay();

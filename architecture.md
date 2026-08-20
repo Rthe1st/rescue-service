@@ -118,7 +118,8 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   (called only when a player character's position actually changes - a move, including the
   round's starting positions) pushes that visibility, plus a snapshot of which of those tiles are
   currently on fire, onto `visibilityHistory`, trimmed to the last `fogOfWarMemoryMoves`
-  entries (see **Fog of war** in `glossary.md`). Splitting them this way means a `layout()`
+  entries - or never trimmed at all, if `fogOfWarUnlimitedMemory` is on (see **Fog of war**
+  in `glossary.md`). Splitting them this way means a `layout()`
   triggered by something other than a move - a resize, a phase transition - still re-renders
   correctly without also consuming a slot in the fixed-size move-memory window.
   `squareFill` falls back from live rendering, to `findMemory`'s memorized rendering, to -

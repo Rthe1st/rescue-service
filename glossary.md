@@ -135,8 +135,12 @@ where it isn't obvious, how it's represented in code.
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -
     `GameScene.visibilityHistory`, capped at the `fogOfWarMemoryMoves` most recent moves (0
-    means no memory: a tile fogs over again the instant it's no longer directly visible).
-    A tile is memorized if any remembered snapshot saw it, regardless of which room (or no
+    means no memory: a tile fogs over again the instant it's no longer directly visible),
+    or, with `fogOfWarUnlimitedMemory` on, never trimmed at all - once a tile's been seen
+    once, it stays memorized for the rest of the round regardless of `fogOfWarMemoryMoves`
+    (whose own setting is disabled in the settings panel while unlimited memory is on, since
+    it has no effect either way). A tile is memorized if any remembered snapshot saw it,
+    regardless of which room (or no
     room) it belongs to - fog of war has no special awareness of rooms beyond how they
     shape what `computeVisibleTiles` reveals. Without `fogOfWarStaticMemory`, a memorized
     tile still shows its true, live state (e.g. fire that has since spread there). With
@@ -213,7 +217,13 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`fogOfWarMemoryMoves`** ("Fog of war memory (moves)") — how many of the most recent
   moves stay memorized instead of immediately fogging over again; clamped to 0–20
   (`MIN_FOG_OF_WAR_MEMORY_MOVES`/`MAX_FOG_OF_WAR_MEMORY_MOVES`), defaulting to
-  `DEFAULT_FOG_OF_WAR_MEMORY_MOVES` (0, no memory); see **Fog of war** above.
+  `DEFAULT_FOG_OF_WAR_MEMORY_MOVES` (0, no memory); has no effect while
+  `fogOfWarUnlimitedMemory` is on, and its control is disabled in the settings panel for
+  that reason; see **Fog of war** above.
+- **`fogOfWarUnlimitedMemory`** ("Fog of war unlimited memory") — a checkbox that, when on,
+  keeps every remembered move for the rest of the round instead of trimming to
+  `fogOfWarMemoryMoves`; defaults to `DEFAULT_FOG_OF_WAR_UNLIMITED_MEMORY` (off); see
+  **Fog of war** above.
 - **`fogOfWarStaticMemory`** ("Fog of war static memory") — whether a memorized-but-not-
   currently-visible tile renders a frozen snapshot of its last-seen fire state instead of
   its true, live state; see **Fog of war** above.
