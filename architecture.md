@@ -121,16 +121,20 @@ redrawing the board and any UI. There's no persistent DOM layout being resized â
   entries (see **Fog of war** in `glossary.md`). Splitting them this way means a `layout()`
   triggered by something other than a move - a resize, a phase transition - still re-renders
   correctly without also consuming a slot in the fixed-size move-memory window.
-  `squareFill` falls back from live rendering, to `findMemory`'s memorized rendering, to
-  `FOG_COLOR`, per tile. Because `movePlayer` otherwise only re-renders the two tiles a
-  player left/entered, it has to fall back to `refreshAllSquareFills()` (every square, not
-  just those two) whenever fog of war is on, since a single step can reveal or hide many
-  tiles' worth of line of sight at once. A parallel `memoryOverlays` map of `Rectangle`s (one
-  per tile, created alongside `squares` in `createBoard`) renders a translucent grey filter,
-  at `memCellOpacity`, over any tile `isMemoryOnly` flags as memorized but not currently
-  visible - kept as a separate layer rather than baked into `squareFill`'s returned color so
-  it composites over whatever `squareFill` rendered (including `fogOfWarStaticMemory`'s
-  live-looking snapshot), instead of replacing it.
+  `squareFill` falls back from live rendering, to `findMemory`'s memorized rendering, to -
+  for a tile that's neither - its terrain rendered as normal but with fire ignored, since
+  there's no way to know whether an unseen/forgotten tile is currently burning. Because
+  `movePlayer` otherwise only re-renders the two tiles a player left/entered, it has to fall
+  back to `refreshAllSquareFills()` (every square, not just those two) whenever fog of war
+  is on, since a single step can reveal or hide many tiles' worth of line of sight at once.
+  A parallel `memoryOverlays` map of `Rectangle`s (one per tile, created alongside `squares`
+  in `createBoard`) renders a translucent grey filter over any tile `overlayFor` says isn't
+  currently visible - `MEMORY_OVERLAY_COLOR` at `memCellOpacity` for a memorized tile,
+  `FOG_COLOR` at `forgottenCellOpacity` for one that's neither visible nor memorized, so the
+  two states stay visually distinguishable and independently adjustable. Kept as a separate
+  layer rather than baked into `squareFill`'s returned color so it composites over whatever
+  `squareFill` rendered (including `fogOfWarStaticMemory`'s live-looking snapshot), instead
+  of replacing it.
 
 ## Settings
 

@@ -163,6 +163,7 @@ export class GameScene extends Phaser.Scene {
   private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
   private lineOfSightMode = gameSettings.lineOfSightMode;
   private memCellOpacity = gameSettings.memCellOpacity;
+  private forgottenCellOpacity = gameSettings.forgottenCellOpacity;
   private visibleTiles = new Set<string>();
   private visibilityHistory: VisibilitySnapshot[] = [];
 
@@ -294,6 +295,7 @@ export class GameScene extends Phaser.Scene {
     this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
     this.lineOfSightMode = gameSettings.lineOfSightMode;
     this.memCellOpacity = gameSettings.memCellOpacity;
+    this.forgottenCellOpacity = gameSettings.forgottenCellOpacity;
   }
 
   private startRound(): void {
@@ -580,17 +582,18 @@ export class GameScene extends Phaser.Scene {
 
         this.squares.set(squareKey(row, col), square);
 
+        const overlayState = this.overlayFor(row, col);
         const overlay = this.add
           .rectangle(
             this.boardOffsetX + col * this.cellSize,
             this.boardOffsetY + row * this.cellSize,
             this.cellSize,
             this.cellSize,
-            MEMORY_OVERLAY_COLOR
+            overlayState?.color ?? MEMORY_OVERLAY_COLOR
           )
           .setOrigin(0, 0)
-          .setVisible(this.isMemoryOnly(row, col))
-          .setAlpha(this.memCellOpacity / 100);
+          .setVisible(overlayState !== undefined)
+          .setAlpha(overlayState?.alpha ?? 0);
 
         this.memoryOverlays.set(squareKey(row, col), overlay);
       }
@@ -719,10 +722,13 @@ export class GameScene extends Phaser.Scene {
     for (const [key, square] of this.squares) {
       const [row, col] = parseSquareKey(key);
       square.setFillStyle(this.squareFill(row, col));
+
+      const overlayState = this.overlayFor(row, col);
       this.memoryOverlays
         .get(key)
-        ?.setVisible(this.isMemoryOnly(row, col))
-        .setAlpha(this.memCellOpacity / 100);
+        ?.setVisible(overlayState !== undefined)
+        .setFillStyle(overlayState?.color ?? MEMORY_OVERLAY_COLOR)
+        .setAlpha(overlayState?.alpha ?? 0);
     }
   }
 
@@ -733,19 +739,29 @@ export class GameScene extends Phaser.Scene {
     if (this.visibleTiles.has(key)) return this.liveSquareFill(row, col);
 
     const memory = this.findMemory(key);
-    if (!memory) return FOG_COLOR;
+    // Never seen (or no longer remembered): render the tile's terrain as normal, ignoring
+    // fire, since there's no way to know whether it's currently burning - `overlayFor` is
+    // what actually hides it, with the grey `forgottenCellOpacity` overlay on top.
+    if (!memory) return this.liveSquareFill(row, col, true);
     if (!this.fogOfWarStaticMemory) return this.liveSquareFill(row, col);
     return memory.flames.has(key) ? FLAME_COLOR : this.liveSquareFill(row, col, true);
   }
 
-  // A tile the grey memory overlay should cover: fog of war is on, it's not currently
-  // visible, but a past move remembers seeing it - covers both `fogOfWarStaticMemory` on and
-  // off, since even the live-rendered "just don't fog it" mode is still memory, not sight.
-  private isMemoryOnly(row: number, col: number): boolean {
-    if (!this.fogOfWarEnabled) return false;
+  // The grey overlay a tile should be covered with, if any: fog of war has to be on and the
+  // tile not currently visible. A tile some past move remembers seeing gets the darker
+  // `MEMORY_OVERLAY_COLOR` at `memCellOpacity` (covers both `fogOfWarStaticMemory` on and
+  // off, since even the live-rendered "just don't fog it" mode is still memory, not sight);
+  // anything never seen, or no longer within the memory window, gets the lighter
+  // `FOG_COLOR` at `forgottenCellOpacity` instead - two independently adjustable opacities
+  // so "half-remembered" and "never seen" can be told apart, and either can be made more or
+  // less transparent to peek at the terrain underneath.
+  private overlayFor(row: number, col: number): { color: number; alpha: number } | undefined {
+    if (!this.fogOfWarEnabled) return undefined;
     const key = squareKey(row, col);
-    if (this.visibleTiles.has(key)) return false;
-    return this.findMemory(key) !== undefined;
+    if (this.visibleTiles.has(key)) return undefined;
+
+    if (this.findMemory(key)) return { color: MEMORY_OVERLAY_COLOR, alpha: this.memCellOpacity / 100 };
+    return { color: FOG_COLOR, alpha: this.forgottenCellOpacity / 100 };
   }
 
   private liveSquareFill(row: number, col: number, ignoreFlame = false): number {
