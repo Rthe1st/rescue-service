@@ -160,6 +160,7 @@ export class GameScene extends Phaser.Scene {
   private hoseCount = gameSettings.hoseCount;
   private fogOfWarEnabled = gameSettings.fogOfWarEnabled;
   private fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
+  private fogOfWarUnlimitedMemory = gameSettings.fogOfWarUnlimitedMemory;
   private fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
   private lineOfSightMode = gameSettings.lineOfSightMode;
   private memCellOpacity = gameSettings.memCellOpacity;
@@ -292,6 +293,7 @@ export class GameScene extends Phaser.Scene {
     this.hoseCount = gameSettings.hoseCount;
     this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
     this.fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
+    this.fogOfWarUnlimitedMemory = gameSettings.fogOfWarUnlimitedMemory;
     this.fogOfWarStaticMemory = gameSettings.fogOfWarStaticMemory;
     this.lineOfSightMode = gameSettings.lineOfSightMode;
     this.memCellOpacity = gameSettings.memCellOpacity;
@@ -690,7 +692,8 @@ export class GameScene extends Phaser.Scene {
 
   // Pushes the current `visibleTiles` (plus which of those tiles are on fire right now) as
   // one more entry in `visibilityHistory`, and trims it to the last `fogOfWarMemoryMoves`
-  // moves - "whatever the player could see on each move up to N moves ago". Call this once
+  // moves - "whatever the player could see on each move up to N moves ago" - unless
+  // `fogOfWarUnlimitedMemory` is on, in which case nothing is ever trimmed. Call this once
   // per actual player move (including the round's starting position, treated as move zero),
   // not from every `layout()` - a resize or phase transition re-renders the board but isn't a
   // move, and would otherwise burn through the fixed-size history window without anything
@@ -701,6 +704,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private trimVisibilityHistory(): void {
+    if (this.fogOfWarUnlimitedMemory) return;
     if (this.fogOfWarMemoryMoves <= 0) {
       this.visibilityHistory = [];
     } else if (this.visibilityHistory.length > this.fogOfWarMemoryMoves) {
