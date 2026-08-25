@@ -87,16 +87,19 @@ where it isn't obvious, how it's represented in code.
   player can't move to a new tile until they either drop the hose or retract it. Dropping
   leaves the hose lying in place until someone picks it up again from its loose end. Every
   hose is rendered as a thick red line through every tile it occupies, with a small circle
-  marking its loose end.
+  marking its loose end. The "Pick up hose"/"Drop hose" button toggling this sits paired
+  with the spray button (see **Spray**, below) as a single action-button cluster
+  (`createActionButtons`) - to the right of the D-pad in portrait, or to the right of the
+  board in landscape - so both live within reach of the same thumb.
 - **Spray** — extinguishes fire at range instead of moving. Only available while carrying
-  a hose: pressing the spray button (top-right, only visible then) arms aiming mode
-  without ending the turn; the next arrow button press fires in that direction instead of
-  moving, searching up to `hoseSprayRange` tiles in a straight line from the carrying
-  player, stopping at the first wall, and extinguishing only the *nearest* flame tile hit
-  along that line - flames further away on the same line are left burning (`sprayHose`).
-  Firing (or losing eligibility to spray, e.g. the burn phase starting) disarms aiming
-  mode. Doesn't move the player or change the hose's path; like a move, it ends the active
-  player's turn.
+  a hose: pressing the spray button (paired above the "Pick up hose"/"Drop hose" button,
+  only visible then) arms aiming mode without ending the turn; the next arrow button press
+  fires in that direction instead of moving, searching up to `hoseSprayRange` tiles in a
+  straight line from the carrying player, stopping at the first wall, and extinguishing
+  only the *nearest* flame tile hit along that line - flames further away on the same line
+  are left burning (`sprayHose`). Firing (or losing eligibility to spray, e.g. the burn
+  phase starting) disarms aiming mode. Doesn't move the player or change the hose's path;
+  like a move, it ends the active player's turn.
 - **Round** — one play-through from a freshly-placed player and a freshly-ignited fire
   (`startRound`) until game over. Starting a new game, or changing the grid size in
   settings mid-game, starts a new round on a newly generated map.
