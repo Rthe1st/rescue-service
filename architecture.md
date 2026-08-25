@@ -73,9 +73,12 @@ freshly generated (or, via `MapPreviewScene`, pre-built) `GameMap` into `GameSce
 
 Each scene manages its own layout from scratch on `create()` and on the Phaser
 `Scale.RESIZE` event, recomputing a `cellSize` from the available space (accounting for
-portrait vs. landscape, and, in `GameScene`, a reserved area for the on-screen D-pad) and
-redrawing the board and any UI. There's no persistent DOM layout being resized — each
-`layout()` call destroys and recreates the affected Phaser objects.
+portrait vs. landscape, and, in `GameScene`, reserved areas for the on-screen D-pad and
+the spray/pickup action-button pair - the D-pad below the board and the actions to its
+right in portrait, the D-pad left of the board and the actions to its right in landscape,
+so the two non-movement actions stay in one thumb-reachable cluster) and redrawing the
+board and any UI. There's no persistent DOM layout being resized — each `layout()` call
+destroys and recreates the affected Phaser objects.
 
 `GameScene` owns the actual play loop:
 

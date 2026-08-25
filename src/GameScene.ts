@@ -16,6 +16,8 @@ import { generatePlayerNames } from "./playerNames";
 import { computeVisibleTilesForAll } from "./visibility";
 
 const CONTROLS_AREA_SIZE = 140;
+const ACTIONS_AREA_SIZE = 100;
+const ACTIONS_BUTTON_GAP = 16;
 const TOP_MARGIN = 104;
 const TURN_ORDER_TEXT_Y = 82;
 const MARGIN = 20;
@@ -216,24 +218,8 @@ export class GameScene extends Phaser.Scene {
       this.toggleDebugGui();
     });
 
-    const sprayButton = this.add
-      .text(width - 30, 30, "💦", {
-        fontSize: "20px",
-        color: "#ffffff",
-        backgroundColor: "#0277bd",
-        padding: { x: 10, y: 6 },
-      })
-      .setOrigin(0.5);
-
-    sprayButton.on("pointerdown", () => {
-      if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
-      this.sprayArmed = !this.sprayArmed;
-      this.updateSprayButton();
-    });
-
     this.endGameButton = endGameButton;
     this.settingsButton = settingsButton;
-    this.sprayButton = sprayButton;
 
     this.timerText = this.add
       .text(width / 2, 58, "", { fontSize: "16px", color: "#ffffff" })
@@ -269,7 +255,6 @@ export class GameScene extends Phaser.Scene {
 
     const handleResize = (): void => {
       this.endGameButton?.setX(this.scale.width / 2);
-      this.sprayButton?.setX(this.scale.width - 30);
       this.layout();
     };
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
@@ -499,6 +484,8 @@ export class GameScene extends Phaser.Scene {
     this.controlButtons = [];
     this.hoseButton?.destroy();
     this.hoseButton = undefined;
+    this.sprayButton?.destroy();
+    this.sprayButton = undefined;
 
     const { width, height } = this.scale;
     this.timerText.setX(width / 2);
@@ -508,6 +495,8 @@ export class GameScene extends Phaser.Scene {
     let availableHeight: number;
     let controlsCenterX: number;
     let controlsCenterY: number;
+    let actionsCenterX: number;
+    let actionsCenterY: number;
 
     // The control buttons sit `buttonSpacing` away from the cluster center and
     // are roughly `buttonFontSize` wide/tall, so the reserved area must grow
@@ -517,9 +506,16 @@ export class GameScene extends Phaser.Scene {
       CONTROLS_AREA_SIZE,
       (this.buttonSpacing + this.buttonFontSize) * 2 + MARGIN
     );
+    // The spray/pickup pair is narrower than the D-pad, but its "Pick up
+    // hose" label still grows with the debug-tunable button size.
+    const actionsAreaWidth = Math.max(
+      ACTIONS_AREA_SIZE,
+      this.buttonFontSize * 3.5
+    );
 
     if (this.isPortrait()) {
-      // Controls below the board.
+      // Controls below the board: the D-pad, with the spray/pickup pair to
+      // its right so both action buttons sit together near the right thumb.
       availableWidth = width - MARGIN * 2;
       availableHeight =
         height - TOP_MARGIN - CONTROLS_GAP - controlsAreaSize - MARGIN;
@@ -534,12 +530,25 @@ export class GameScene extends Phaser.Scene {
       this.boardOffsetX = (width - boardSize) / 2;
       this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
 
-      controlsCenterX = width / 2;
+      const dpadWidth = this.buttonSpacing * 2 + this.buttonFontSize;
+      const groupWidth = dpadWidth + CONTROLS_GAP + actionsAreaWidth;
+      const groupLeftX = width / 2 - groupWidth / 2;
+      controlsCenterX = groupLeftX + dpadWidth / 2;
       controlsCenterY =
         this.boardOffsetY + boardSize + CONTROLS_GAP + controlsAreaSize / 2;
+      actionsCenterX =
+        groupLeftX + dpadWidth + CONTROLS_GAP + actionsAreaWidth / 2;
+      actionsCenterY = controlsCenterY;
     } else {
-      // Controls to the left of the board.
-      availableWidth = width - controlsAreaSize - CONTROLS_GAP - MARGIN;
+      // D-pad to the left of the board (left thumb), spray/pickup pair to
+      // the board's right (right thumb).
+      availableWidth =
+        width -
+        controlsAreaSize -
+        CONTROLS_GAP -
+        actionsAreaWidth -
+        CONTROLS_GAP -
+        MARGIN;
       availableHeight = height - TOP_MARGIN - MARGIN;
       this.cellSize = Math.max(
         1,
@@ -555,6 +564,9 @@ export class GameScene extends Phaser.Scene {
 
       controlsCenterX = controlsAreaSize / 2;
       controlsCenterY = TOP_MARGIN + availableHeight / 2;
+      actionsCenterX =
+        this.boardOffsetX + boardSize + CONTROLS_GAP + actionsAreaWidth / 2;
+      actionsCenterY = controlsCenterY;
     }
 
     this.createBoard();
@@ -563,7 +575,7 @@ export class GameScene extends Phaser.Scene {
     this.createPlayerMarkers();
     this.createPlayerLabels();
     this.createControls(controlsCenterX, controlsCenterY);
-    this.createHoseButton(controlsCenterX, controlsCenterY);
+    this.createActionButtons(actionsCenterX, actionsCenterY);
     this.updateSprayButton();
   }
 
@@ -922,35 +934,54 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // Placed at the center of the D-pad cluster, so picking up/dropping the hose reads as
-  // just another part of the movement controls.
-  private createHoseButton(centerX: number, centerY: number): void {
+  // Placed together as a single thumb-reachable cluster - the spray button above the
+  // pickup/drop button - so both non-movement actions live in one place instead of spray
+  // sitting up in the top bar, separate from the hose button.
+  private createActionButtons(centerX: number, centerY: number): void {
+    const fontSize = `${String(Math.round(this.buttonFontSize * 0.6))}px`;
     const padding = {
       x: Math.round(this.buttonFontSize * (10 / 24)),
       y: Math.round(this.buttonFontSize * (6 / 24)),
     };
+    const halfGap = ACTIONS_BUTTON_GAP / 2;
 
-    const button = this.add
-      .text(centerX, centerY, "", {
-        fontSize: `${String(Math.round(this.buttonFontSize * 0.6))}px`,
+    const sprayButton = this.add
+      .text(centerX, centerY - halfGap, "", {
+        fontSize,
+        color: "#ffffff",
+        backgroundColor: "#0277bd",
+        padding,
+      })
+      .setOrigin(0.5, 1);
+
+    sprayButton.on("pointerdown", () => {
+      if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
+      this.sprayArmed = !this.sprayArmed;
+      this.updateSprayButton();
+    });
+
+    const hoseButton = this.add
+      .text(centerX, centerY + halfGap, "", {
+        fontSize,
         color: "#ffffff",
         backgroundColor: "#6d4c41",
         padding,
         align: "center",
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5, 0);
 
-    button.on("pointerdown", () => {
+    hoseButton.on("pointerdown", () => {
       this.toggleHoseCarry();
     });
-    button.on("pointerover", () => {
-      if (this.hoseAction()) button.setStyle({ backgroundColor: "#8d6e63" });
+    hoseButton.on("pointerover", () => {
+      if (this.hoseAction()) hoseButton.setStyle({ backgroundColor: "#8d6e63" });
     });
-    button.on("pointerout", () => {
-      button.setStyle({ backgroundColor: "#6d4c41" });
+    hoseButton.on("pointerout", () => {
+      hoseButton.setStyle({ backgroundColor: "#6d4c41" });
     });
 
-    this.hoseButton = button;
+    this.sprayButton = sprayButton;
+    this.hoseButton = hoseButton;
     this.updateHoseButton();
   }
 
