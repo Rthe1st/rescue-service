@@ -1,0 +1,180 @@
+name: Orphaned Claude Branch Check
+
+# Safety net for the "Claude pushed a branch but never opened a PR" failure mode
+# (see issue #83). Claude Code sessions are expected to push their work and then
+# call create_pull_request, but a session can end (crash, timeout, hit a tool
+# error) after the push and before the PR is created, silently stranding
+# finished work on a branch that nobody is watching. This workflow periodically
+# looks for exactly that situation and opens a draft fallback PR so the work
+# isn't lost, and comments on any issue the branch says it fixes.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  deployments: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find claude/* branches with commits but no PR, and open a fallback PR
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const STALE_MS = 15 * 60 * 1000; // give an in-progress session time to finish on its own
+
+            const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
+            const defaultBranch = repoInfo.default_branch;
+
+            const branches = await github.paginate(github.rest.repos.listBranches, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const claudeBranches = branches
+              .map((b) => b.name)
+              .filter((name) => name.startsWith("claude/") && name !== defaultBranch);
+
+            for (const branch of claudeBranches) {
+              let compare;
+              try {
+                compare = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${defaultBranch}...${branch}`,
+                });
+              } catch (err) {
+                core.warning(`Couldn't compare ${branch} against ${defaultBranch}: ${err.message}`);
+                continue;
+              }
+
+              if (compare.data.ahead_by === 0) {
+                continue; // nothing new on this branch
+              }
+
+              const commits = compare.data.commits;
+              const headSha = compare.data.commits.at(-1).sha;
+              const lastCommitDate = new Date(
+                commits.at(-1).commit.committer?.date || commits.at(-1).commit.author.date
+              );
+              if (Date.now() - lastCommitDate.getTime() < STALE_MS) {
+                continue; // could still be an active session, give it more time
+              }
+
+              const { data: existingPrs } = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: "all",
+                head: `${owner}:${branch}`,
+              });
+              if (existingPrs.length > 0) {
+                continue; // already has (or had) a PR
+              }
+
+              core.info(`${branch} has ${compare.data.ahead_by} unreviewed commit(s) and no PR - opening a fallback PR.`);
+
+              // Best-effort: reuse whatever Cloudflare Pages deployment already exists for
+              // the head commit, same lookup the "PR Template Check" job does, but without
+              // the long poll since this branch has been idle for a while already.
+              let deploymentUrl = null;
+              try {
+                const { data: deployments } = await github.rest.repos.listDeployments({
+                  owner,
+                  repo,
+                  sha: headSha,
+                  per_page: 100,
+                });
+                for (const deployment of deployments) {
+                  const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                    owner,
+                    repo,
+                    deployment_id: deployment.id,
+                    per_page: 10,
+                  });
+                  const success = statuses.find((s) => s.state === "success" && s.environment_url);
+                  if (success) {
+                    deploymentUrl = success.environment_url;
+                    break;
+                  }
+                }
+              } catch (err) {
+                core.warning(`Couldn't look up a deployment for ${branch}@${headSha}: ${err.message}`);
+              }
+
+              const fixedIssues = new Set();
+              const fixesRe = /\b(?:fixe[sd]|close[sd]?|resolve[sd]?)\s+#(\d+)/gi;
+              for (const c of commits) {
+                for (const match of c.commit.message.matchAll(fixesRe)) {
+                  fixedIssues.add(Number(match[1]));
+                }
+              }
+
+              const commitList = commits
+                .map((c) => `- ${c.commit.message.split("\n")[0]} (${c.sha.slice(0, 7)})`)
+                .join("\n");
+
+              const preview = deploymentUrl
+                ? deploymentUrl
+                : "<!-- No successful Cloudflare Pages deployment was found for this commit. Check the " +
+                  '"Cloudflare Pages Deployment Check" run for this branch and fill in the URL manually. -->';
+
+              const body = [
+                "## Description",
+                "",
+                `This PR was opened automatically by the *Orphaned Claude Branch Check* workflow: ` +
+                  `branch \`${branch}\` has ${compare.data.ahead_by} commit(s) ahead of \`${defaultBranch}\` ` +
+                  `that were never turned into a pull request (see #83). Commits on this branch:`,
+                "",
+                commitList,
+                "",
+                fixedIssues.size > 0
+                  ? `Possibly fixes: ${[...fixedIssues].map((n) => `#${n}`).join(", ")}`
+                  : "",
+                "",
+                "This description is a placeholder and does not follow the required PR template yet - " +
+                  "it needs a human or a Claude session to review the change and rewrite this section, " +
+                  "and confirm the preview link below is current, before merging.",
+                "",
+                "## Preview deployment",
+                "",
+                preview,
+                "",
+              ].join("\n");
+
+              const title = commits.at(-1).commit.message.split("\n")[0];
+
+              const pr = await github.rest.pulls.create({
+                owner,
+                repo,
+                title,
+                head: branch,
+                base: defaultBranch,
+                body,
+                draft: true,
+              });
+
+              core.info(`Opened fallback PR #${pr.data.number} for ${branch}: ${pr.data.html_url}`);
+
+              for (const issueNumber of fixedIssues) {
+                try {
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    body:
+                      `The \`${branch}\` branch had unpushed work for this issue that never got a pull request, ` +
+                      `so the *Orphaned Claude Branch Check* workflow opened a fallback draft PR: ${pr.data.html_url}\n\n` +
+                      `It still needs its description rewritten to follow the PR template before it can merge.`,
+                  });
+                } catch (err) {
+                  core.warning(`Couldn't comment on #${issueNumber}: ${err.message}`);
+                }
+              }
+            }
