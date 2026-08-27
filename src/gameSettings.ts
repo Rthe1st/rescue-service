@@ -1,4 +1,4 @@
-import GUI from "lil-gui";
+import GUI, { type Controller } from "lil-gui";
 import {
   DEFAULT_DOOR_COUNT,
   DEFAULT_EXTRA_DOOR_PERCENT,
@@ -8,10 +8,14 @@ import {
   MIN_EXTRA_DOOR_PERCENT,
 } from "./mapGeneration";
 import { LINE_OF_SIGHT_MODES, type LineOfSightMode } from "./visibility";
+import {
+  MAX_UX_ELEMENT_PERCENT,
+  MIN_UX_ELEMENT_PERCENT,
+  type UxElementLayoutSettings,
+} from "./uxElementLayout";
 
 export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
-export const DEFAULT_BUTTON_FONT_SIZE = 24;
 export const DEFAULT_BUTTON_SPACING = 50;
 export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
@@ -39,12 +43,69 @@ export const DEFAULT_FORGOTTEN_CELL_OPACITY = 100;
 export const MIN_FORGOTTEN_CELL_OPACITY = 0;
 export const MAX_FORGOTTEN_CELL_OPACITY = 100;
 
+// Editable UX elements: each has a Size/X/Y triplet (see uxElementLayout.ts) with defaults
+// chosen to reproduce the previous hand-computed layout at the game's default 800x600 size.
+export type UxElementKey =
+  | "title"
+  | "startButton"
+  | "map"
+  | "arrowButtons"
+  | "sprayButton"
+  | "hoseButton"
+  | "endGameButton";
+
+export const MAIN_SCREEN_UX_ELEMENTS: readonly UxElementKey[] = [
+  "title",
+  "startButton",
+];
+export const GAME_SCREEN_UX_ELEMENTS: readonly UxElementKey[] = [
+  "map",
+  "arrowButtons",
+  "sprayButton",
+  "hoseButton",
+  "endGameButton",
+];
+const UX_ELEMENT_KEYS: readonly UxElementKey[] = [
+  ...MAIN_SCREEN_UX_ELEMENTS,
+  ...GAME_SCREEN_UX_ELEMENTS,
+];
+
+export const UX_ELEMENT_LABELS: Record<UxElementKey, string> = {
+  title: "Title",
+  startButton: "Start button",
+  map: "Map",
+  arrowButtons: "Arrow buttons",
+  sprayButton: "Spray button",
+  hoseButton: "Hose button",
+  endGameButton: "End game button",
+};
+
+export const DEFAULT_UX_ELEMENT_LAYOUT: Record<
+  UxElementKey,
+  UxElementLayoutSettings
+> = {
+  title: { sizePercent: 5, xPercent: 50, yPercent: 60 },
+  startButton: { sizePercent: 3.5, xPercent: 50, yPercent: 40 },
+  map: { sizePercent: 58, xPercent: 53, yPercent: 43 },
+  arrowButtons: { sizePercent: 3, xPercent: 11, yPercent: 43 },
+  sprayButton: { sizePercent: 1.8, xPercent: 91, yPercent: 44 },
+  hoseButton: { sizePercent: 1.8, xPercent: 91, yPercent: 42 },
+  endGameButton: { sizePercent: 2.5, xPercent: 50, yPercent: 97 },
+};
+
+function cloneUxElementLayout(
+  source: Record<UxElementKey, UxElementLayoutSettings>
+): Record<UxElementKey, UxElementLayoutSettings> {
+  const clone = {} as Record<UxElementKey, UxElementLayoutSettings>;
+  for (const key of UX_ELEMENT_KEYS) clone[key] = { ...source[key] };
+  return clone;
+}
+
 const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 
 export interface GameParams {
   gridSize: number;
   cellSizeScale: number;
-  buttonSize: number;
   buttonSpacing: number;
   firefightingDurationSeconds: number;
   spreadDirections: number;
@@ -63,12 +124,12 @@ export interface GameParams {
   lineOfSightMode: LineOfSightMode;
   memCellOpacity: number;
   forgottenCellOpacity: number;
+  uxElements: Record<UxElementKey, UxElementLayoutSettings>;
 }
 
 export const gameSettings: GameParams = {
   gridSize: DEFAULT_GRID_SIZE,
   cellSizeScale: DEFAULT_CELL_SIZE_SCALE,
-  buttonSize: DEFAULT_BUTTON_FONT_SIZE,
   buttonSpacing: DEFAULT_BUTTON_SPACING,
   firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
@@ -87,7 +148,30 @@ export const gameSettings: GameParams = {
   lineOfSightMode: DEFAULT_LINE_OF_SIGHT_MODE,
   memCellOpacity: DEFAULT_MEM_CELL_OPACITY,
   forgottenCellOpacity: DEFAULT_FORGOTTEN_CELL_OPACITY,
+  uxElements: cloneUxElementLayout(DEFAULT_UX_ELEMENT_LAYOUT),
 };
+
+function isUxElementLayoutSettings(
+  value: unknown
+): value is UxElementLayoutSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate["sizePercent"] === "number" &&
+    typeof candidate["xPercent"] === "number" &&
+    typeof candidate["yPercent"] === "number"
+  );
+}
+
+function isUxElementLayoutRecord(
+  value: unknown
+): value is Record<UxElementKey, UxElementLayoutSettings> {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return UX_ELEMENT_KEYS.every((key) =>
+    isUxElementLayoutSettings(candidate[key])
+  );
+}
 
 function isGameParams(value: unknown): value is GameParams {
   if (typeof value !== "object" || value === null) return false;
@@ -95,7 +179,6 @@ function isGameParams(value: unknown): value is GameParams {
   return (
     typeof candidate["gridSize"] === "number" &&
     typeof candidate["cellSizeScale"] === "number" &&
-    typeof candidate["buttonSize"] === "number" &&
     typeof candidate["buttonSpacing"] === "number" &&
     typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number" &&
@@ -114,7 +197,8 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["lineOfSightMode"] === "string" &&
     LINE_OF_SIGHT_MODES.includes(candidate["lineOfSightMode"] as LineOfSightMode) &&
     typeof candidate["memCellOpacity"] === "number" &&
-    typeof candidate["forgottenCellOpacity"] === "number"
+    typeof candidate["forgottenCellOpacity"] === "number" &&
+    isUxElementLayoutRecord(candidate["uxElements"])
   );
 }
 
@@ -140,6 +224,36 @@ function savePresets(presets: Record<string, GameParams>): void {
   localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
 }
 
+interface UxElementControllers {
+  size: Controller;
+  x: Controller;
+  y: Controller;
+}
+
+// Shared by every UX element's folder so the Size/X/Y triplet (see uxElementLayout.ts) is
+// declared once instead of once per element.
+function addUxElementControls(
+  folder: GUI,
+  key: UxElementKey,
+  onChange?: () => void
+): UxElementControllers {
+  const settings = gameSettings.uxElements[key];
+  const elementFolder = folder.addFolder(UX_ELEMENT_LABELS[key]);
+  const size = elementFolder
+    .add(settings, "sizePercent", MIN_UX_ELEMENT_PERCENT, MAX_UX_ELEMENT_PERCENT, 0.1)
+    .name("Size (%)")
+    .onChange(() => onChange?.());
+  const x = elementFolder
+    .add(settings, "xPercent", MIN_UX_ELEMENT_PERCENT, MAX_UX_ELEMENT_PERCENT, 1)
+    .name("X (%)")
+    .onChange(() => onChange?.());
+  const y = elementFolder
+    .add(settings, "yPercent", MIN_UX_ELEMENT_PERCENT, MAX_UX_ELEMENT_PERCENT, 1)
+    .name("Y (%)")
+    .onChange(() => onChange?.());
+  return { size, x, y };
+}
+
 // Binds directly to the shared `gameSettings` object so any scene's panel stays in sync.
 export function createSettingsGui(onChange?: () => void): GUI {
   const gui = new GUI({ title: "Game parameters" });
@@ -151,10 +265,6 @@ export function createSettingsGui(onChange?: () => void): GUI {
   const scaleController = gui
     .add(gameSettings, "cellSizeScale", 0.5, 1.5, 0.05)
     .name("Square size")
-    .onChange(() => onChange?.());
-  const sizeController = gui
-    .add(gameSettings, "buttonSize", 12, 48, 1)
-    .name("Arrow control size")
     .onChange(() => onChange?.());
   const spacingController = gui
     .add(gameSettings, "buttonSpacing", 20, 100, 1)
@@ -233,6 +343,17 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .name("Forgotten cell opacity (%)")
     .onChange(() => onChange?.());
 
+  const uxElementsFolder = gui.addFolder("UX elements");
+  const mainScreenFolder = uxElementsFolder.addFolder("Main screen");
+  const gameScreenFolder = uxElementsFolder.addFolder("Game screen");
+  const uxElementControllers = {} as Record<UxElementKey, UxElementControllers>;
+  for (const key of MAIN_SCREEN_UX_ELEMENTS) {
+    uxElementControllers[key] = addUxElementControls(mainScreenFolder, key, onChange);
+  }
+  for (const key of GAME_SCREEN_UX_ELEMENTS) {
+    uxElementControllers[key] = addUxElementControls(gameScreenFolder, key, onChange);
+  }
+
   const presets = loadPresets();
   const presetState = { preset: "", presetName: "" };
 
@@ -242,7 +363,6 @@ export function createSettingsGui(onChange?: () => void): GUI {
 
     gameSettings.gridSize = preset.gridSize;
     gameSettings.cellSizeScale = preset.cellSizeScale;
-    gameSettings.buttonSize = preset.buttonSize;
     gameSettings.buttonSpacing = preset.buttonSpacing;
     gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
@@ -261,9 +381,13 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.lineOfSightMode = preset.lineOfSightMode;
     gameSettings.memCellOpacity = preset.memCellOpacity;
     gameSettings.forgottenCellOpacity = preset.forgottenCellOpacity;
+    // Mutated in place (not reassigned) since each lil-gui controller below was bound to
+    // the specific nested `gameSettings.uxElements[key]` object at GUI-construction time.
+    for (const key of UX_ELEMENT_KEYS) {
+      Object.assign(gameSettings.uxElements[key], preset.uxElements[key]);
+    }
     gridController.updateDisplay();
     scaleController.updateDisplay();
-    sizeController.updateDisplay();
     spacingController.updateDisplay();
     firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
@@ -283,6 +407,12 @@ export function createSettingsGui(onChange?: () => void): GUI {
     lineOfSightModeController.updateDisplay();
     memCellOpacityController.updateDisplay();
     forgottenCellOpacityController.updateDisplay();
+    for (const key of UX_ELEMENT_KEYS) {
+      const controllers = uxElementControllers[key];
+      controllers.size.updateDisplay();
+      controllers.x.updateDisplay();
+      controllers.y.updateDisplay();
+    }
 
     onChange?.();
   };
@@ -303,7 +433,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
           const name = presetState.presetName.trim();
           if (!name) return;
 
-          presets[name] = { ...gameSettings };
+          presets[name] = {
+            ...gameSettings,
+            uxElements: cloneUxElementLayout(gameSettings.uxElements),
+          };
           savePresets(presets);
 
           presetController.options(["", ...Object.keys(presets)]);

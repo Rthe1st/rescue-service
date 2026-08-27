@@ -186,8 +186,6 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
   regenerates the map and starts a new round.
 - **`cellSizeScale`** ("Square size") — a multiplier applied to the computed tile size,
   for making the board render larger or smaller than the default fit.
-- **`buttonSize`** ("Arrow control size") — font size (in px) of the directional control
-  buttons, which also drives their approximate width/height.
 - **`buttonSpacing`** ("Arrow control spacing") — distance (in px) from the center of the
   D-pad cluster to each arrow button.
 - **`firefightingDurationSeconds`** ("Firefighting duration (s)") — how long the
@@ -242,3 +240,41 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
   (never seen, or fallen out of the memory window); clamped to 0–100
   (`MIN_FORGOTTEN_CELL_OPACITY`/`MAX_FORGOTTEN_CELL_OPACITY`), defaulting to
   `DEFAULT_FORGOTTEN_CELL_OPACITY` (100, fully opaque); see **Fog of war** above.
+- **`uxElements`** ("UX elements" folder, with "Main screen" and "Game screen"
+  sub-folders) — per-element Size/X/Y layout for the **UX element**s listed below; see
+  **UX element** below.
+
+## UX element
+
+A **UX element** is a screen element whose layout (rather than its behavior) is
+user-editable through the "UX elements" settings folder, via `src/uxElementLayout.ts`'s
+shared `computeUxElementPosition` helper instead of scene-specific hand-computed
+positioning. Each has exactly three settings, all percentages:
+
+- **Size (%)** — the element's size as a percentage of screen width (font size for text/
+  buttons, or the map's pixel width for the board).
+- **X (%)** — the element's horizontal center as a percentage of screen width from the
+  left edge.
+- **Y (%)** — the element's vertical center as a percentage of screen height from the
+  bottom edge.
+
+Defaults (`DEFAULT_UX_ELEMENT_LAYOUT` in `src/gameSettings.ts`) are calibrated to
+reproduce the previous hand-computed layout at the game's default 800x600 size. Elements
+are also nudged back on screen at render time (`keepOnScreen`) or clamped to fit
+(`clampedTopLeft`, used for the map) so implausible settings can't push an element
+entirely off screen; this doesn't prevent elements from overlapping each other.
+
+Under "Main screen" (`MainMenuScene`):
+- **Title** — the game's title text.
+- **Start button** — starts a game (or, if `editMapsBeforePlay` is on, opens
+  `MapPreviewScene` first).
+
+Under "Game screen" (`GameScene`):
+- **Map** — the game board; its size is additionally capped to never exceed the screen's
+  shorter dimension or grow into the header band the timer/status/turn-order texts and
+  the end game button occupy.
+- **Arrow buttons** — the D-pad cluster; `buttonSpacing` still controls the distance from
+  its center to each arrow.
+- **Spray button** and **Hose button** — positioned and sized independently of each other
+  (previously a single stacked cluster).
+- **End game button** — returns to `MainMenuScene`.

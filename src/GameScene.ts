@@ -14,14 +14,16 @@ import {
 } from "./mapGeneration";
 import { generatePlayerNames } from "./playerNames";
 import { computeVisibleTilesForAll } from "./visibility";
+import {
+  clampedTopLeft,
+  computeUxElementPosition,
+  keepOnScreen,
+} from "./uxElementLayout";
 
-const CONTROLS_AREA_SIZE = 140;
-const ACTIONS_AREA_SIZE = 100;
-const ACTIONS_BUTTON_GAP = 16;
-const TOP_MARGIN = 104;
 const TURN_ORDER_TEXT_Y = 82;
-const MARGIN = 20;
-const CONTROLS_GAP = 20;
+// Reserved band at the top of the game screen for the timer/status/turn-order texts and
+// the end game button, which the map must never grow into or be positioned under.
+const HEADER_HEIGHT = 104;
 
 const BURN_PHASE_DURATION_MS = 1_000;
 
@@ -133,7 +135,6 @@ export class GameScene extends Phaser.Scene {
   private playerMarkers = new Map<number, Phaser.GameObjects.Arc>();
   private gridSize = DEFAULT_GRID_SIZE;
   private cellSizeScale = gameSettings.cellSizeScale;
-  private buttonFontSize = gameSettings.buttonSize;
   private buttonSpacing = gameSettings.buttonSpacing;
   private gui: GUI | undefined;
   private guiVisible = false;
@@ -180,24 +181,6 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     const { width } = this.scale;
 
-    const endGameButton = this.add
-      .text(width / 2, 30, "End Game", {
-        fontSize: "20px",
-        color: "#ffffff",
-        backgroundColor: "#b71c1c",
-        padding: { x: 16, y: 8 },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    endGameButton.on("pointerover", () =>
-      endGameButton.setStyle({ backgroundColor: "#d32f2f" })
-    );
-    endGameButton.on("pointerout", () =>
-      endGameButton.setStyle({ backgroundColor: "#b71c1c" })
-    );
-    endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
-
     const settingsButton = this.add
       .text(30, 30, "⚙", {
         fontSize: "20px",
@@ -218,7 +201,6 @@ export class GameScene extends Phaser.Scene {
       this.toggleDebugGui();
     });
 
-    this.endGameButton = endGameButton;
     this.settingsButton = settingsButton;
 
     this.timerText = this.add
@@ -254,7 +236,6 @@ export class GameScene extends Phaser.Scene {
     this.updatePhaseText();
 
     const handleResize = (): void => {
-      this.endGameButton?.setX(this.scale.width / 2);
       this.layout();
     };
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
@@ -266,7 +247,6 @@ export class GameScene extends Phaser.Scene {
   private applySettings(): void {
     this.gridSize = gameSettings.gridSize;
     this.cellSizeScale = gameSettings.cellSizeScale;
-    this.buttonFontSize = gameSettings.buttonSize;
     this.buttonSpacing = gameSettings.buttonSpacing;
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
@@ -465,12 +445,6 @@ export class GameScene extends Phaser.Scene {
     this.gui?.show(this.guiVisible);
   };
 
-  private isPortrait(): boolean {
-    const { width, height } = this.scale.parentSize;
-    if (width === 0 || height === 0) return false;
-    return height > width;
-  }
-
   private layout(): void {
     this.pruneFlames();
     this.refreshVisibleTiles();
@@ -486,97 +460,94 @@ export class GameScene extends Phaser.Scene {
     this.hoseButton = undefined;
     this.sprayButton?.destroy();
     this.sprayButton = undefined;
+    this.endGameButton?.destroy();
+    this.endGameButton = undefined;
 
     const { width, height } = this.scale;
     this.timerText.setX(width / 2);
     this.statusText.setX(width / 2);
     this.turnOrderText.setX(width / 2);
-    let availableWidth: number;
-    let availableHeight: number;
-    let controlsCenterX: number;
-    let controlsCenterY: number;
-    let actionsCenterX: number;
-    let actionsCenterY: number;
 
-    // The control buttons sit `buttonSpacing` away from the cluster center and
-    // are roughly `buttonFontSize` wide/tall, so the reserved area must grow
-    // with those debug-tunable values or the outer buttons get clipped off
-    // the edge of the screen.
-    const controlsAreaSize = Math.max(
-      CONTROLS_AREA_SIZE,
-      (this.buttonSpacing + this.buttonFontSize) * 2 + MARGIN
+    const mapLayout = computeUxElementPosition(
+      gameSettings.uxElements.map,
+      width,
+      height
     );
-    // The spray/pickup pair is narrower than the D-pad, but its "Pick up
-    // hose" label still grows with the debug-tunable button size.
-    const actionsAreaWidth = Math.max(
-      ACTIONS_AREA_SIZE,
-      this.buttonFontSize * 3.5
+    // The map is square, so its target size can never exceed either screen dimension - a
+    // "% of screen width" that would overflow the (usually shorter) height gets capped. It
+    // also never overlaps the fixed header band the timer/status/turn-order texts and the
+    // end game button live in.
+    const boardTargetSize = Math.min(
+      mapLayout.size * this.cellSizeScale,
+      width,
+      height - HEADER_HEIGHT
     );
+    this.cellSize = Math.max(1, Math.floor(boardTargetSize / this.gridSize));
+    const boardSize = this.cellSize * this.gridSize;
+    this.boardOffsetX = clampedTopLeft(mapLayout.x, boardSize, width);
+    this.boardOffsetY = clampedTopLeft(mapLayout.y, boardSize, height, HEADER_HEIGHT);
 
-    if (this.isPortrait()) {
-      // Controls below the board: the D-pad, with the spray/pickup pair to
-      // its right so both action buttons sit together near the right thumb.
-      availableWidth = width - MARGIN * 2;
-      availableHeight =
-        height - TOP_MARGIN - CONTROLS_GAP - controlsAreaSize - MARGIN;
-      this.cellSize = Math.max(
-        1,
-        Math.floor(
-          (Math.min(availableWidth, availableHeight) / this.gridSize) *
-            this.cellSizeScale
-        )
-      );
-      const boardSize = this.cellSize * this.gridSize;
-      this.boardOffsetX = (width - boardSize) / 2;
-      this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
-
-      const dpadWidth = this.buttonSpacing * 2 + this.buttonFontSize;
-      const groupWidth = dpadWidth + CONTROLS_GAP + actionsAreaWidth;
-      const groupLeftX = width / 2 - groupWidth / 2;
-      controlsCenterX = groupLeftX + dpadWidth / 2;
-      controlsCenterY =
-        this.boardOffsetY + boardSize + CONTROLS_GAP + controlsAreaSize / 2;
-      actionsCenterX =
-        groupLeftX + dpadWidth + CONTROLS_GAP + actionsAreaWidth / 2;
-      actionsCenterY = controlsCenterY;
-    } else {
-      // D-pad to the left of the board (left thumb), spray/pickup pair to
-      // the board's right (right thumb).
-      availableWidth =
-        width -
-        controlsAreaSize -
-        CONTROLS_GAP -
-        actionsAreaWidth -
-        CONTROLS_GAP -
-        MARGIN;
-      availableHeight = height - TOP_MARGIN - MARGIN;
-      this.cellSize = Math.max(
-        1,
-        Math.floor(
-          (Math.min(availableWidth, availableHeight) / this.gridSize) *
-            this.cellSizeScale
-        )
-      );
-      const boardSize = this.cellSize * this.gridSize;
-      this.boardOffsetX =
-        controlsAreaSize + CONTROLS_GAP + (availableWidth - boardSize) / 2;
-      this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
-
-      controlsCenterX = controlsAreaSize / 2;
-      controlsCenterY = TOP_MARGIN + availableHeight / 2;
-      actionsCenterX =
-        this.boardOffsetX + boardSize + CONTROLS_GAP + actionsAreaWidth / 2;
-      actionsCenterY = controlsCenterY;
-    }
+    const controlsLayout = computeUxElementPosition(
+      gameSettings.uxElements.arrowButtons,
+      width,
+      height
+    );
+    const sprayLayout = computeUxElementPosition(
+      gameSettings.uxElements.sprayButton,
+      width,
+      height
+    );
+    const hoseLayout = computeUxElementPosition(
+      gameSettings.uxElements.hoseButton,
+      width,
+      height
+    );
 
     this.createBoard();
     this.drawWalls();
     this.drawHoses();
     this.createPlayerMarkers();
     this.createPlayerLabels();
-    this.createControls(controlsCenterX, controlsCenterY);
-    this.createActionButtons(actionsCenterX, actionsCenterY);
+    this.createControls(controlsLayout.x, controlsLayout.y, controlsLayout.size);
+    const sprayButton = this.createSprayButton(
+      sprayLayout.x,
+      sprayLayout.y,
+      sprayLayout.size
+    );
+    this.createHoseButton(hoseLayout.x, hoseLayout.y, hoseLayout.size);
+    this.createEndGameButton();
     this.updateSprayButton();
+    keepOnScreen(sprayButton, width, height);
+  }
+
+  private createEndGameButton(): void {
+    const { width, height } = this.scale;
+    const layout = computeUxElementPosition(
+      gameSettings.uxElements.endGameButton,
+      width,
+      height
+    );
+
+    const endGameButton = this.add
+      .text(layout.x, layout.y, "End Game", {
+        fontSize: `${String(Math.round(layout.size))}px`,
+        color: "#ffffff",
+        backgroundColor: "#b71c1c",
+        padding: { x: 16, y: 8 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    endGameButton.on("pointerover", () =>
+      endGameButton.setStyle({ backgroundColor: "#d32f2f" })
+    );
+    endGameButton.on("pointerout", () =>
+      endGameButton.setStyle({ backgroundColor: "#b71c1c" })
+    );
+    endGameButton.on("pointerdown", () => this.scene.start("MainMenuScene"));
+    keepOnScreen(endGameButton, width, height);
+
+    this.endGameButton = endGameButton;
   }
 
   private createBoard(): void {
@@ -855,13 +826,17 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private createControls(centerX: number, centerY: number): void {
+  private createControls(
+    centerX: number,
+    centerY: number,
+    fontSize: number
+  ): void {
     this.controlButtonsByName.clear();
 
     const spacing = this.buttonSpacing;
     const padding = {
-      x: Math.round(this.buttonFontSize * (14 / 24)),
-      y: Math.round(this.buttonFontSize * (10 / 24)),
+      x: Math.round(fontSize * (14 / 24)),
+      y: Math.round(fontSize * (10 / 24)),
     };
 
     const directions: Direction[] = [
@@ -900,11 +875,12 @@ export class GameScene extends Phaser.Scene {
     ];
 
     const movable = this.canMove();
+    const { width, height } = this.scale;
 
     for (const direction of directions) {
       const button = this.add
         .text(direction.x, direction.y, direction.label, {
-          fontSize: `${String(this.buttonFontSize)}px`,
+          fontSize: `${String(Math.round(fontSize))}px`,
           color: "#ffffff",
           backgroundColor: "#1565c0",
           padding,
@@ -929,30 +905,30 @@ export class GameScene extends Phaser.Scene {
         });
       }
 
+      keepOnScreen(button, width, height);
       this.controlButtons.push(button);
       this.controlButtonsByName.set(direction.name, button);
     }
   }
 
-  // Placed together as a single thumb-reachable cluster - the spray button above the
-  // pickup/drop button - so both non-movement actions live in one place instead of spray
-  // sitting up in the top bar, separate from the hose button.
-  private createActionButtons(centerX: number, centerY: number): void {
-    const fontSize = `${String(Math.round(this.buttonFontSize * 0.6))}px`;
+  private createSprayButton(
+    x: number,
+    y: number,
+    fontSize: number
+  ): Phaser.GameObjects.Text {
     const padding = {
-      x: Math.round(this.buttonFontSize * (10 / 24)),
-      y: Math.round(this.buttonFontSize * (6 / 24)),
+      x: Math.round(fontSize * (10 / 24)),
+      y: Math.round(fontSize * (6 / 24)),
     };
-    const halfGap = ACTIONS_BUTTON_GAP / 2;
 
     const sprayButton = this.add
-      .text(centerX, centerY - halfGap, "", {
-        fontSize,
+      .text(x, y, "", {
+        fontSize: `${String(Math.round(fontSize))}px`,
         color: "#ffffff",
         backgroundColor: "#0277bd",
         padding,
       })
-      .setOrigin(0.5, 1);
+      .setOrigin(0.5);
 
     sprayButton.on("pointerdown", () => {
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
@@ -960,15 +936,25 @@ export class GameScene extends Phaser.Scene {
       this.updateSprayButton();
     });
 
+    this.sprayButton = sprayButton;
+    return sprayButton;
+  }
+
+  private createHoseButton(x: number, y: number, fontSize: number): void {
+    const padding = {
+      x: Math.round(fontSize * (10 / 24)),
+      y: Math.round(fontSize * (6 / 24)),
+    };
+
     const hoseButton = this.add
-      .text(centerX, centerY + halfGap, "", {
-        fontSize,
+      .text(x, y, "", {
+        fontSize: `${String(Math.round(fontSize))}px`,
         color: "#ffffff",
         backgroundColor: "#6d4c41",
         padding,
         align: "center",
       })
-      .setOrigin(0.5, 0);
+      .setOrigin(0.5);
 
     hoseButton.on("pointerdown", () => {
       this.toggleHoseCarry();
@@ -980,9 +966,9 @@ export class GameScene extends Phaser.Scene {
       hoseButton.setStyle({ backgroundColor: "#6d4c41" });
     });
 
-    this.sprayButton = sprayButton;
     this.hoseButton = hoseButton;
     this.updateHoseButton();
+    keepOnScreen(hoseButton, this.scale.width, this.scale.height);
   }
 
   // The hose the given player is currently carrying, if any - a player can carry at most

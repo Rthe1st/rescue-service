@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import GUI from "lil-gui";
 import { createSettingsGui, gameSettings } from "./gameSettings";
 import { generateMap } from "./mapGeneration";
+import { computeUxElementPosition, keepOnScreen } from "./uxElementLayout";
 
 export interface ElementBounds {
   x: number;
@@ -70,25 +71,37 @@ export class MainMenuScene extends Phaser.Scene {
 
     const { width, height } = this.scale;
 
+    const title = computeUxElementPosition(
+      gameSettings.uxElements.title,
+      width,
+      height
+    );
     this.titleText = this.add
-      .text(width / 2, height / 2 - 60, "Fire service rescue mission", {
-        fontSize: "40px",
+      .text(title.x, title.y, "Fire service rescue mission", {
+        fontSize: `${String(Math.round(title.size))}px`,
         color: "#ffffff",
         fontStyle: "bold",
         align: "center",
         wordWrap: { width: width - 80 },
       })
       .setOrigin(0.5);
+    keepOnScreen(this.titleText, width, height);
 
+    const startButtonLayout = computeUxElementPosition(
+      gameSettings.uxElements.startButton,
+      width,
+      height
+    );
     const startButton = this.add
-      .text(width / 2, height / 2 + 60, "Start", {
-        fontSize: "28px",
+      .text(startButtonLayout.x, startButtonLayout.y, "Start", {
+        fontSize: `${String(Math.round(startButtonLayout.size))}px`,
         color: "#ffffff",
         backgroundColor: "#2e7d32",
         padding: { x: 24, y: 12 },
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
+    keepOnScreen(startButton, width, height);
 
     startButton.on("pointerover", () =>
       startButton.setStyle({ backgroundColor: "#388e3c" })
