@@ -44,7 +44,9 @@ export class MainMenuScene extends Phaser.Scene {
     });
     this.settingsButton = settingsButton;
 
-    const gui = createSettingsGui();
+    const gui = createSettingsGui(() => {
+      this.layout();
+    });
     gui.hide();
     this.guiVisible = false;
     this.gui = gui;
