@@ -5,13 +5,13 @@ game concepts named here (tiles, walls, rooms, doors, phases, ...) actually mean
 
 ## Stack
 
-- **Phaser 3** — the game engine; renders the board with primitive `Rectangle`/`Graphics`
+- **Phaser 4** — the game engine; renders the board with primitive `Rectangle`/`Graphics`
   objects rather than sprites, since the whole game is just colored squares and lines.
 - **TypeScript**, compiled/bundled with **Vite** (`vite.config.ts`, `npm run build`/`dev`).
 - **lil-gui** — powers the in-game settings panel (the gear icon), bound directly to the
   shared `gameSettings` object.
-- **Vitest** — unit tests, colocated with source as `*.test.ts` (currently just
-  `src/mapGeneration.test.ts`).
+- **Vitest** — unit tests, colocated with source as `*.test.ts` (e.g.
+  `src/mapGeneration.test.ts`, `src/visibility.test.ts`, `src/uxElementLayout.test.ts`).
 - **Playwright** — layout/visual tests in `tests/`, run against a real dev server.
 - **Cloudflare Pages** (via `wrangler`) — hosting; every push gets its own preview
   deployment (see `README.md` and `.github/workflows/cloudflare-pages-check.yml`).
@@ -28,6 +28,12 @@ Everything lives flat in `src/`, no subdirectories:
 - `visibility.ts` — pure, framework-free fog-of-war line-of-sight logic
   (`computeVisibleTiles`/`computeVisibleTilesForAll`, `roomAt`), same style as
   `mapGeneration.ts` and unit tested the same way.
+- `uxElementLayout.ts` — pure, framework-free math (`computeUxElementPosition`,
+  `clampedTopLeft`) converting a UX element's Size/X/Y percentage settings into pixel
+  position/size, plus `keepOnScreen`, a small Phaser-duck-typed helper that nudges an
+  already-created display object back on screen using its real rendered bounds. Shared by
+  every UX element (see **UX element** in `glossary.md`) instead of each scene
+  hand-computing its own layout.
 - `MainMenuScene.ts`, `MapPreviewScene.ts`, `GameScene.ts` — one Phaser `Scene` subclass
   each, registered in `main.ts` and switched between with `this.scene.start(...)`.
 
@@ -72,13 +78,17 @@ each other via `scene.start(key, data)` / `init(data)` — e.g. `MainMenuScene` 
 freshly generated (or, via `MapPreviewScene`, pre-built) `GameMap` into `GameScene`.
 
 Each scene manages its own layout from scratch on `create()` and on the Phaser
-`Scale.RESIZE` event, recomputing a `cellSize` from the available space (accounting for
-portrait vs. landscape, and, in `GameScene`, reserved areas for the on-screen D-pad and
-the spray/pickup action-button pair - the D-pad below the board and the actions to its
-right in portrait, the D-pad left of the board and the actions to its right in landscape,
-so the two non-movement actions stay in one thumb-reachable cluster) and redrawing the
-board and any UI. There's no persistent DOM layout being resized — each `layout()` call
-destroys and recreates the affected Phaser objects.
+`Scale.RESIZE` event, redrawing the board and any UI. There's no persistent DOM layout
+being resized — each `layout()` call destroys and recreates the affected Phaser objects.
+Every UX element's (see `glossary.md`) position/size comes from `computeUxElementPosition`
+applied to its `gameSettings.uxElements[key]` percentages rather than being computed from
+leftover space; `GameScene.layout()` additionally derives `cellSize` from the **Map**
+element's settings-driven target size, capped to never exceed the screen's shorter
+dimension or grow into the fixed header band (`HEADER_HEIGHT`) the timer/status/turn-order
+texts and the end game button occupy (`clampedTopLeft`'s `minOffset` parameter). Settings
+only control the *default* layout faithfully reproducing the pre-settings-driven look —
+arbitrary user-chosen percentages can still make elements overlap each other, since only
+individual off-screen clipping is guarded against (`keepOnScreen`/`clampedTopLeft`).
 
 `GameScene` owns the actual play loop:
 
@@ -149,6 +159,16 @@ the panel (currently `MainMenuScene` and `GameScene`) edits the same live settin
 can react to changes (e.g. `GameScene` regenerates the map if `gridSize` changed).
 Presets are named snapshots of the whole `GameParams` object, validated with
 `isGameParams` and persisted to `localStorage` under a fixed key.
+
+`gameSettings.uxElements` is the one nested field: a `Record<UxElementKey,
+UxElementLayoutSettings>` (see **UX element** in `glossary.md`), grouped in the panel
+under a "UX elements" folder with "Main screen"/"Game screen" sub-folders
+(`addUxElementControls` builds each element's Size/X/Y triplet once, reused per element
+instead of being declared 21 times over). Because lil-gui controllers bind to the
+specific nested object instance passed to `.add()`, preset load mutates each
+`gameSettings.uxElements[key]` object's fields in place (`Object.assign`) rather than
+replacing `gameSettings.uxElements` wholesale, and preset save deep-clones it — otherwise
+the saved preset and the live settings would alias the same nested objects.
 
 ## Testing
 
