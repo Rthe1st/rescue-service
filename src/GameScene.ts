@@ -497,6 +497,8 @@ export class GameScene extends Phaser.Scene {
     let controlsCenterY: number;
     let actionsCenterX: number;
     let actionsCenterY: number;
+    let dpadOverride: { spacing: number; fontSize: number } | undefined;
+    let actionsFixedSize: { width: number; height: number } | undefined;
 
     // The control buttons sit `buttonSpacing` away from the cluster center and
     // are roughly `buttonFontSize` wide/tall, so the reserved area must grow
@@ -514,30 +516,48 @@ export class GameScene extends Phaser.Scene {
     );
 
     if (this.isPortrait()) {
-      // Controls below the board: the D-pad, with the spray/pickup pair to
-      // its right so both action buttons sit together near the right thumb.
-      availableWidth = width - MARGIN * 2;
-      availableHeight =
-        height - TOP_MARGIN - CONTROLS_GAP - controlsAreaSize - MARGIN;
+      // Three stacked sections: "top ux" (fixed height, the end game
+      // button/timer/turn order - already accounted for by TOP_MARGIN), the
+      // map directly underneath it at the screen's full width, then "bottom
+      // ux" filling whatever's left.
       this.cellSize = Math.max(
         1,
-        Math.floor(
-          (Math.min(availableWidth, availableHeight) / this.gridSize) *
-            this.cellSizeScale
-        )
+        Math.floor((width / this.gridSize) * this.cellSizeScale)
       );
       const boardSize = this.cellSize * this.gridSize;
-      this.boardOffsetX = (width - boardSize) / 2;
-      this.boardOffsetY = TOP_MARGIN + (availableHeight - boardSize) / 2;
+      this.boardOffsetX = 0;
+      this.boardOffsetY = TOP_MARGIN;
 
-      const dpadWidth = this.buttonSpacing * 2 + this.buttonFontSize;
-      const groupWidth = dpadWidth + CONTROLS_GAP + actionsAreaWidth;
-      const groupLeftX = width / 2 - groupWidth / 2;
-      controlsCenterX = groupLeftX + dpadWidth / 2;
-      controlsCenterY =
-        this.boardOffsetY + boardSize + CONTROLS_GAP + controlsAreaSize / 2;
-      actionsCenterX =
-        groupLeftX + dpadWidth + CONTROLS_GAP + actionsAreaWidth / 2;
+      const bottomUxTop = TOP_MARGIN + boardSize;
+      const bottomUxHeight = Math.max(0, height - bottomUxTop);
+      const halfWidth = width / 2;
+
+      // Left half of bottom ux: the D-pad, centered, scaled up or down
+      // (keeping the spacing/button-size ratio chosen in settings) to be as
+      // large as fits in the half.
+      const dpadAvailable = Math.max(
+        0,
+        Math.min(halfWidth, bottomUxHeight) - MARGIN * 2
+      );
+      const naturalDpadSize = (this.buttonSpacing + this.buttonFontSize) * 2;
+      const dpadScale =
+        naturalDpadSize > 0 ? dpadAvailable / naturalDpadSize : 0;
+      dpadOverride = {
+        spacing: this.buttonSpacing * dpadScale,
+        fontSize: Math.max(1, Math.round(this.buttonFontSize * dpadScale)),
+      };
+      controlsCenterX = halfWidth / 2;
+      controlsCenterY = bottomUxTop + bottomUxHeight / 2;
+
+      // Right half of bottom ux: spray + hose buttons stacked as one
+      // centered pair, each 80% of the half's width and equal heights.
+      const actionsAvailableWidth = Math.max(0, halfWidth - MARGIN * 2);
+      const actionsAvailableHeight = Math.max(0, bottomUxHeight - MARGIN * 2);
+      actionsFixedSize = {
+        width: Math.max(1, actionsAvailableWidth * 0.8),
+        height: Math.max(1, (actionsAvailableHeight - ACTIONS_BUTTON_GAP) / 2),
+      };
+      actionsCenterX = halfWidth + halfWidth / 2;
       actionsCenterY = controlsCenterY;
     } else {
       // D-pad to the left of the board (left thumb), spray/pickup pair to
@@ -574,8 +594,8 @@ export class GameScene extends Phaser.Scene {
     this.drawHoses();
     this.createPlayerMarkers();
     this.createPlayerLabels();
-    this.createControls(controlsCenterX, controlsCenterY);
-    this.createActionButtons(actionsCenterX, actionsCenterY);
+    this.createControls(controlsCenterX, controlsCenterY, dpadOverride);
+    this.createActionButtons(actionsCenterX, actionsCenterY, actionsFixedSize);
     this.updateSprayButton();
   }
 
@@ -855,13 +875,18 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private createControls(centerX: number, centerY: number): void {
+  private createControls(
+    centerX: number,
+    centerY: number,
+    override?: { spacing: number; fontSize: number }
+  ): void {
     this.controlButtonsByName.clear();
 
-    const spacing = this.buttonSpacing;
+    const spacing = override?.spacing ?? this.buttonSpacing;
+    const fontSize = override?.fontSize ?? this.buttonFontSize;
     const padding = {
-      x: Math.round(this.buttonFontSize * (14 / 24)),
-      y: Math.round(this.buttonFontSize * (10 / 24)),
+      x: Math.round(fontSize * (14 / 24)),
+      y: Math.round(fontSize * (10 / 24)),
     };
 
     const directions: Direction[] = [
@@ -904,7 +929,7 @@ export class GameScene extends Phaser.Scene {
     for (const direction of directions) {
       const button = this.add
         .text(direction.x, direction.y, direction.label, {
-          fontSize: `${String(this.buttonFontSize)}px`,
+          fontSize: `${String(fontSize)}px`,
           color: "#ffffff",
           backgroundColor: "#1565c0",
           padding,
@@ -937,22 +962,44 @@ export class GameScene extends Phaser.Scene {
   // Placed together as a single thumb-reachable cluster - the spray button above the
   // pickup/drop button - so both non-movement actions live in one place instead of spray
   // sitting up in the top bar, separate from the hose button.
-  private createActionButtons(centerX: number, centerY: number): void {
-    const fontSize = `${String(Math.round(this.buttonFontSize * 0.6))}px`;
+  //
+  // `fixedSize`, when given (portrait's "bottom ux" right half), forces both buttons to
+  // that exact width/height instead of shrink-wrapping their label text, and centers the
+  // pair around (centerX, centerY) rather than stacking outward from it - `align: "center"`
+  // handles horizontal centering of the label within that width, and the vertical padding
+  // below approximates centering it within the height, since Phaser doesn't do that itself
+  // for `setFixedSize`'s fixed height.
+  private createActionButtons(
+    centerX: number,
+    centerY: number,
+    fixedSize?: { width: number; height: number }
+  ): void {
+    const fontSizeNum = Math.round(this.buttonFontSize * 0.6);
+    const fontSize = `${String(fontSizeNum)}px`;
+    const horizontalPadding = Math.round(this.buttonFontSize * (10 / 24));
     const padding = {
-      x: Math.round(this.buttonFontSize * (10 / 24)),
+      x: horizontalPadding,
       y: Math.round(this.buttonFontSize * (6 / 24)),
     };
     const halfGap = ACTIONS_BUTTON_GAP / 2;
 
+    const verticalPaddingFor = (lines: number): number => {
+      if (!fixedSize) return padding.y;
+      const contentHeight = lines * fontSizeNum * 1.2;
+      return Math.max(0, (fixedSize.height - contentHeight) / 2);
+    };
+
+    const sprayY = fixedSize ? centerY - (fixedSize.height / 2 + halfGap) : centerY - halfGap;
     const sprayButton = this.add
-      .text(centerX, centerY - halfGap, "", {
+      .text(centerX, sprayY, "", {
         fontSize,
         color: "#ffffff",
         backgroundColor: "#0277bd",
-        padding,
+        padding: { x: horizontalPadding, y: verticalPaddingFor(1) },
+        align: "center",
       })
-      .setOrigin(0.5, 1);
+      .setOrigin(0.5, fixedSize ? 0.5 : 1);
+    if (fixedSize) sprayButton.setFixedSize(fixedSize.width, fixedSize.height);
 
     sprayButton.on("pointerdown", () => {
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
@@ -960,15 +1007,17 @@ export class GameScene extends Phaser.Scene {
       this.updateSprayButton();
     });
 
+    const hoseY = fixedSize ? centerY + (fixedSize.height / 2 + halfGap) : centerY + halfGap;
     const hoseButton = this.add
-      .text(centerX, centerY + halfGap, "", {
+      .text(centerX, hoseY, "", {
         fontSize,
         color: "#ffffff",
         backgroundColor: "#6d4c41",
-        padding,
+        padding: { x: horizontalPadding, y: verticalPaddingFor(2) },
         align: "center",
       })
-      .setOrigin(0.5, 0);
+      .setOrigin(0.5, fixedSize ? 0.5 : 0);
+    if (fixedSize) hoseButton.setFixedSize(fixedSize.width, fixedSize.height);
 
     hoseButton.on("pointerdown", () => {
       this.toggleHoseCarry();
