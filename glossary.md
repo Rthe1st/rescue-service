@@ -180,14 +180,13 @@ where it isn't obvious, how it's represented in code.
 All adjustable via the gear icon's debug panel (`createSettingsGui` in
 `src/gameSettings.ts`), which reads and writes the shared `gameSettings` object directly
 so every scene's panel stays in sync. Settings can be saved/loaded as named presets in
-`localStorage`.
+`localStorage`. All settings below live in the panel's "General" folder, alongside a
+separate "UX elements" folder (see **UX element** below).
 
 - **`gridSize`** ("Number of squares") — the map's width and height in tiles. Changing it
   regenerates the map and starts a new round.
 - **`cellSizeScale`** ("Square size") — a multiplier applied to the computed tile size,
   for making the board render larger or smaller than the default fit.
-- **`buttonSpacing`** ("Arrow control spacing") — distance (in px) from the center of the
-  D-pad cluster to each arrow button.
 - **`firefightingDurationSeconds`** ("Firefighting duration (s)") — how long the
   firefighting phase lasts before the burn phase kicks in.
 - **`spreadDirections`** ("Flame spread directions") — how many of a flame's (up to 4)
@@ -273,8 +272,10 @@ Under "Game screen" (`GameScene`):
 - **Map** — the game board; its size is additionally capped to never exceed the screen's
   shorter dimension or grow into the header band the timer/status/turn-order texts and
   the end game button occupy.
-- **Arrow buttons** — the D-pad cluster; `buttonSpacing` still controls the distance from
-  its center to each arrow.
+- **Arrow buttons** — the D-pad cluster; the distance from its center to each arrow is
+  derived from the arrow buttons' own rendered width/height (not separately configurable),
+  so the gap between the up/down buttons and between the left/right buttons is always
+  exactly one button's own height/width.
 - **Spray button** and **Hose button** — positioned and sized independently of each other
   (previously a single stacked cluster).
 - **End game button** — returns to `MainMenuScene`.

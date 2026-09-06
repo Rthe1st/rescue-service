@@ -16,7 +16,6 @@ import {
 
 export const DEFAULT_GRID_SIZE = 16;
 export const DEFAULT_CELL_SIZE_SCALE = 1;
-export const DEFAULT_BUTTON_SPACING = 50;
 export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
 export const DEFAULT_EDIT_MAPS_BEFORE_PLAY = false;
@@ -106,7 +105,6 @@ const PRESETS_STORAGE_KEY = "rescue-service:gui-presets";
 export interface GameParams {
   gridSize: number;
   cellSizeScale: number;
-  buttonSpacing: number;
   firefightingDurationSeconds: number;
   spreadDirections: number;
   editMapsBeforePlay: boolean;
@@ -130,7 +128,6 @@ export interface GameParams {
 export const gameSettings: GameParams = {
   gridSize: DEFAULT_GRID_SIZE,
   cellSizeScale: DEFAULT_CELL_SIZE_SCALE,
-  buttonSpacing: DEFAULT_BUTTON_SPACING,
   firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
@@ -179,7 +176,6 @@ function isGameParams(value: unknown): value is GameParams {
   return (
     typeof candidate["gridSize"] === "number" &&
     typeof candidate["cellSizeScale"] === "number" &&
-    typeof candidate["buttonSpacing"] === "number" &&
     typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number" &&
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
@@ -257,88 +253,85 @@ function addUxElementControls(
 // Binds directly to the shared `gameSettings` object so any scene's panel stays in sync.
 export function createSettingsGui(onChange?: () => void): GUI {
   const gui = new GUI({ title: "Game parameters" });
+  const generalFolder = gui.addFolder("General");
 
-  const gridController = gui
+  const gridController = generalFolder
     .add(gameSettings, "gridSize", 4, 32, 1)
     .name("Number of squares")
     .onChange(() => onChange?.());
-  const scaleController = gui
+  const scaleController = generalFolder
     .add(gameSettings, "cellSizeScale", 0.5, 1.5, 0.05)
     .name("Square size")
     .onChange(() => onChange?.());
-  const spacingController = gui
-    .add(gameSettings, "buttonSpacing", 20, 100, 1)
-    .name("Arrow control spacing")
-    .onChange(() => onChange?.());
-  const firefightingDurationController = gui
+  const firefightingDurationController = generalFolder
     .add(gameSettings, "firefightingDurationSeconds", 1, 100, 1)
     .name("Firefighting duration (s)")
     .onChange(() => onChange?.());
-  const spreadDirectionsController = gui
+  const spreadDirectionsController = generalFolder
     .add(gameSettings, "spreadDirections", 1, 4, 1)
     .name("Flame spread directions")
     .onChange(() => onChange?.());
-  const editMapsBeforePlayController = gui
+  const editMapsBeforePlayController = generalFolder
     .add(gameSettings, "editMapsBeforePlay")
     .name("Edit maps before play")
     .onChange(() => onChange?.());
-  const generationStepDelayController = gui
+  const generationStepDelayController = generalFolder
     .add(gameSettings, "generationStepDelayMs", 1, 300, 1)
     .name("Map generation step delay (ms)")
     .onChange(() => onChange?.());
-  const doorCountController = gui
+  const doorCountController = generalFolder
     .add(gameSettings, "doorCount", MIN_DOOR_COUNT, MAX_DOOR_COUNT, 1)
     .name("Number of doors")
     .onChange(() => onChange?.());
-  const extraDoorPercentController = gui
+  const extraDoorPercentController = generalFolder
     .add(gameSettings, "extraDoorPercent", MIN_EXTRA_DOOR_PERCENT, MAX_EXTRA_DOOR_PERCENT, 1)
     .name("Extra door chance (%)")
     .onChange(() => onChange?.());
-  const playerCountController = gui
+  const playerCountController = generalFolder
     .add(gameSettings, "playerCount", MIN_PLAYER_COUNT, MAX_PLAYER_COUNT, 1)
     .name("Number of players")
     .onChange(() => onChange?.());
-  const maxHoseLengthController = gui
+  const maxHoseLengthController = generalFolder
     .add(gameSettings, "maxHoseLength", 1, 30, 1)
     .name("Max hose length")
     .onChange(() => onChange?.());
-  const hoseSprayRangeController = gui
+  const hoseSprayRangeController = generalFolder
     .add(gameSettings, "hoseSprayRange", 1, 20, 1)
     .name("Hose spray range")
     .onChange(() => onChange?.());
-  const hoseCountController = gui
+  const hoseCountController = generalFolder
     .add(gameSettings, "hoseCount", MIN_HOSE_COUNT, MAX_HOSE_COUNT, 1)
     .name("Number of hoses")
     .onChange(() => onChange?.());
-  const fogOfWarEnabledController = gui
+  const fogOfWarEnabledController = generalFolder
     .add(gameSettings, "fogOfWarEnabled")
     .name("Fog of war")
     .onChange(() => onChange?.());
-  const fogOfWarMemoryMovesController = gui
+  const fogOfWarMemoryMovesController = generalFolder
     .add(gameSettings, "fogOfWarMemoryMoves", MIN_FOG_OF_WAR_MEMORY_MOVES, MAX_FOG_OF_WAR_MEMORY_MOVES, 1)
     .name("Fog of war memory (moves)")
     .onChange(() => onChange?.())
     .disable(gameSettings.fogOfWarUnlimitedMemory);
-  const fogOfWarUnlimitedMemoryController = gui
+  const fogOfWarUnlimitedMemoryController = generalFolder
     .add(gameSettings, "fogOfWarUnlimitedMemory")
     .name("Fog of war unlimited memory")
     .onChange((unlimited: boolean) => {
       fogOfWarMemoryMovesController.disable(unlimited);
       onChange?.();
     });
-  const fogOfWarStaticMemoryController = gui
+  const fogOfWarStaticMemoryController = generalFolder
     .add(gameSettings, "fogOfWarStaticMemory")
     .name("Fog of war static memory")
     .onChange(() => onChange?.());
-  const lineOfSightModeController = gui
+  const lineOfSightModeController = generalFolder
     .add(gameSettings, "lineOfSightMode", LINE_OF_SIGHT_MODES)
     .name("Line of sight mode")
     .onChange(() => onChange?.());
-  const memCellOpacityController = gui
+  const memCellOpacityController = generalFolder
     .add(gameSettings, "memCellOpacity", MIN_MEM_CELL_OPACITY, MAX_MEM_CELL_OPACITY, 1)
     .name("Mem cell opacity (%)")
     .onChange(() => onChange?.());
-  const forgottenCellOpacityController = gui
+  const forgottenCellOpacityController = generalFolder
     .add(gameSettings, "forgottenCellOpacity", MIN_FORGOTTEN_CELL_OPACITY, MAX_FORGOTTEN_CELL_OPACITY, 1)
     .name("Forgotten cell opacity (%)")
     .onChange(() => onChange?.());
@@ -363,7 +356,6 @@ export function createSettingsGui(onChange?: () => void): GUI {
 
     gameSettings.gridSize = preset.gridSize;
     gameSettings.cellSizeScale = preset.cellSizeScale;
-    gameSettings.buttonSpacing = preset.buttonSpacing;
     gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
@@ -388,7 +380,6 @@ export function createSettingsGui(onChange?: () => void): GUI {
     }
     gridController.updateDisplay();
     scaleController.updateDisplay();
-    spacingController.updateDisplay();
     firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
     editMapsBeforePlayController.updateDisplay();

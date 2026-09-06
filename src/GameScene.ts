@@ -135,7 +135,6 @@ export class GameScene extends Phaser.Scene {
   private playerMarkers = new Map<number, Phaser.GameObjects.Arc>();
   private gridSize = DEFAULT_GRID_SIZE;
   private cellSizeScale = gameSettings.cellSizeScale;
-  private buttonSpacing = gameSettings.buttonSpacing;
   private gui: GUI | undefined;
   private guiVisible = false;
   private flames = new Set<string>();
@@ -247,7 +246,6 @@ export class GameScene extends Phaser.Scene {
   private applySettings(): void {
     this.gridSize = gameSettings.gridSize;
     this.cellSizeScale = gameSettings.cellSizeScale;
-    this.buttonSpacing = gameSettings.buttonSpacing;
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
     this.doorCount = gameSettings.doorCount;
@@ -833,11 +831,22 @@ export class GameScene extends Phaser.Scene {
   ): void {
     this.controlButtonsByName.clear();
 
-    const spacing = this.buttonSpacing;
     const padding = {
       x: Math.round(fontSize * (14 / 24)),
       y: Math.round(fontSize * (10 / 24)),
     };
+
+    // The gap between the up/down buttons and between the left/right buttons is exactly
+    // one button's own height/width, so measure a representative button of each
+    // orientation before laying anything out (a center-to-center distance of one
+    // button-length leaves a gap of exactly one button-length between the two edges).
+    const style = { fontSize: `${String(Math.round(fontSize))}px`, padding };
+    const verticalProbe = this.add.text(0, 0, "▲", style);
+    const spacingY = verticalProbe.getBounds().height;
+    verticalProbe.destroy();
+    const horizontalProbe = this.add.text(0, 0, "◀", style);
+    const spacingX = horizontalProbe.getBounds().width;
+    horizontalProbe.destroy();
 
     const directions: Direction[] = [
       {
@@ -846,7 +855,7 @@ export class GameScene extends Phaser.Scene {
         dRow: -1,
         dCol: 0,
         x: centerX,
-        y: centerY - spacing,
+        y: centerY - spacingY,
       },
       {
         name: "down",
@@ -854,14 +863,14 @@ export class GameScene extends Phaser.Scene {
         dRow: 1,
         dCol: 0,
         x: centerX,
-        y: centerY + spacing,
+        y: centerY + spacingY,
       },
       {
         name: "left",
         label: "◀",
         dRow: 0,
         dCol: -1,
-        x: centerX - spacing,
+        x: centerX - spacingX,
         y: centerY,
       },
       {
@@ -869,7 +878,7 @@ export class GameScene extends Phaser.Scene {
         label: "▶",
         dRow: 0,
         dCol: 1,
-        x: centerX + spacing,
+        x: centerX + spacingX,
         y: centerY,
       },
     ];

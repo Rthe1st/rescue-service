@@ -158,7 +158,9 @@ panel bound directly to that object's fields via `.onChange`, so any scene that 
 the panel (currently `MainMenuScene` and `GameScene`) edits the same live settings and
 can react to changes (e.g. `GameScene` regenerates the map if `gridSize` changed).
 Presets are named snapshots of the whole `GameParams` object, validated with
-`isGameParams` and persisted to `localStorage` under a fixed key.
+`isGameParams` and persisted to `localStorage` under a fixed key. Every setting other
+than `uxElements` lives under a top-level "General" folder; preset load/save controls
+stay at the panel's root, alongside "General" and "UX elements".
 
 `gameSettings.uxElements` is the one nested field: a `Record<UxElementKey,
 UxElementLayoutSettings>` (see **UX element** in `glossary.md`), grouped in the panel
