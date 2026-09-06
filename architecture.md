@@ -72,13 +72,26 @@ each other via `scene.start(key, data)` / `init(data)` — e.g. `MainMenuScene` 
 freshly generated (or, via `MapPreviewScene`, pre-built) `GameMap` into `GameScene`.
 
 Each scene manages its own layout from scratch on `create()` and on the Phaser
-`Scale.RESIZE` event, recomputing a `cellSize` from the available space (accounting for
-portrait vs. landscape, and, in `GameScene`, reserved areas for the on-screen D-pad and
-the spray/pickup action-button pair - the D-pad below the board and the actions to its
-right in portrait, the D-pad left of the board and the actions to its right in landscape,
-so the two non-movement actions stay in one thumb-reachable cluster) and redrawing the
+`Scale.RESIZE` event, recomputing a `cellSize` from the available space and redrawing the
 board and any UI. There's no persistent DOM layout being resized — each `layout()` call
 destroys and recreates the affected Phaser objects.
+
+`GameScene.layout()` splits the screen differently depending on orientation
+(`isPortrait()`):
+
+- **Landscape** — the D-pad reserves a column to the left of the board, the spray/pickup
+  action-button pair a narrower column to its right, so the two non-movement actions stay
+  in one thumb-reachable cluster; `cellSize` is derived from whatever width/height is left
+  after those columns and the top margin.
+- **Portrait** — three stacked sections, "top ux", the board, and "bottom ux": the board
+  is pinned to the screen's full width directly below a fixed-height top margin (so
+  `cellSize` comes from width alone, not the smaller of width/height), and "bottom ux" -
+  whatever vertical space is left under the board - is split into a left half (the D-pad,
+  centered, its `buttonSpacing`/`buttonFontSize` scaled by the same factor so it stays as
+  large as fits the half without changing their ratio) and a right half (the spray/pickup
+  pair, stacked and centered as one group, each forced via `Text.setFixedSize` to 80% of
+  the half's width and half its height minus the gap between them, rather than
+  shrink-wrapping their label text like every other button).
 
 `GameScene` owns the actual play loop:
 
