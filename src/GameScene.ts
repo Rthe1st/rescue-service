@@ -41,6 +41,10 @@ const HOSE_COLOR = 0xd32f2f;
 const HOSE_LINE_WIDTH_RATIO = 0.2;
 const HOSE_END_MARKER_RADIUS_RATIO = 0.15;
 
+const SPRAY_TARGET_ICON = "💧";
+const SPRAY_TARGET_ICON_SIZE_RATIO = 0.6;
+const SPRAY_TARGET_UNLIT_ALPHA = 0.35;
+
 const ADJACENT_OFFSETS: ReadonlyArray<[number, number]> = [
   [-1, 0],
   [1, 0],
@@ -122,6 +126,7 @@ export class GameScene extends Phaser.Scene {
   private boardOffsetY = 0;
   private squares = new Map<string, Phaser.GameObjects.Rectangle>();
   private memoryOverlays = new Map<string, Phaser.GameObjects.Rectangle>();
+  private sprayTargetIcons = new Map<string, Phaser.GameObjects.Text>();
   private wallGraphics: Phaser.GameObjects.Graphics | undefined;
   private controlButtons: Phaser.GameObjects.Text[] = [];
   private controlButtonsByName = new Map<string, Phaser.GameObjects.Text>();
@@ -480,6 +485,8 @@ export class GameScene extends Phaser.Scene {
     this.squares.clear();
     for (const overlay of this.memoryOverlays.values()) overlay.destroy();
     this.memoryOverlays.clear();
+    for (const icon of this.sprayTargetIcons.values()) icon.destroy();
+    this.sprayTargetIcons.clear();
     for (const button of this.controlButtons) button.destroy();
     this.controlButtons = [];
     this.hoseButton?.destroy();
@@ -1003,7 +1010,11 @@ export class GameScene extends Phaser.Scene {
 
     sprayButton.on("pointerdown", () => {
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
-      this.sprayArmed = !this.sprayArmed;
+      // Once armed (showing the 🎯 target symbol), a further press does nothing - aiming
+      // mode is only left by firing (an arrow press) or by losing eligibility to spray, not
+      // by pressing the spray button again.
+      if (this.sprayArmed) return;
+      this.sprayArmed = true;
       this.updateSprayButton();
     });
 
@@ -1116,6 +1127,68 @@ export class GameScene extends Phaser.Scene {
     button.setStyle({ backgroundColor: this.sprayArmed ? "#00b0ff" : "#0277bd" });
     if (available) button.setInteractive({ useHandCursor: true });
     else button.disableInteractive();
+    this.updateSprayTargetIcons();
+  }
+
+  // The tiles a spray fired right now would travel over, one run per direction: every tile
+  // from the carrying player's own tile up to `hoseSprayRange` steps away, stopping at the
+  // first wall - and, within that, stopping right after the first flame tile hit, since
+  // `sprayHose` only ever extinguishes the nearest flame per direction and travels no
+  // further. Keyed by square key, valued by whether that tile is on fire.
+  private computeSprayTargetTiles(): Map<string, boolean> {
+    const tiles = new Map<string, boolean>();
+    const player = this.players[this.activePlayerIndex];
+    if (!player) return tiles;
+
+    const directions: ReadonlyArray<[number, number]> = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
+
+    for (const [dRow, dCol] of directions) {
+      let row = player.row;
+      let col = player.col;
+      for (let i = 0; i < this.hoseSprayRange; i++) {
+        const nextRow = row + dRow;
+        const nextCol = col + dCol;
+        if (!canPass(this.map, col, row, nextCol, nextRow)) break;
+        row = nextRow;
+        col = nextCol;
+
+        const onFire = this.flames.has(squareKey(row, col));
+        tiles.set(squareKey(row, col), onFire);
+        if (onFire) break;
+      }
+    }
+
+    return tiles;
+  }
+
+  // Shows a water-droplet icon on every tile the currently armed spray could reach
+  // (`computeSprayTargetTiles`) - dimmed for a tile the water would just pass over, full
+  // opacity for one that's on fire and would actually be extinguished. Cleared entirely
+  // while aiming mode isn't armed.
+  private updateSprayTargetIcons(): void {
+    for (const icon of this.sprayTargetIcons.values()) icon.destroy();
+    this.sprayTargetIcons.clear();
+    if (!this.sprayArmed) return;
+
+    const fontSize = Math.round(this.cellSize * SPRAY_TARGET_ICON_SIZE_RATIO);
+    for (const [key, onFire] of this.computeSprayTargetTiles()) {
+      const [row, col] = parseSquareKey(key);
+      const icon = this.add
+        .text(
+          this.boardOffsetX + col * this.cellSize + this.cellSize / 2,
+          this.boardOffsetY + row * this.cellSize + this.cellSize / 2,
+          SPRAY_TARGET_ICON,
+          { fontSize: `${String(fontSize)}px` }
+        )
+        .setOrigin(0.5)
+        .setAlpha(onFire ? 1 : SPRAY_TARGET_UNLIT_ALPHA);
+      this.sprayTargetIcons.set(key, icon);
+    }
   }
 
   // Sprays water in a straight line from the carrying player's tile, stopping at the

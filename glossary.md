@@ -93,13 +93,20 @@ where it isn't obvious, how it's represented in code.
   board in landscape - so both live within reach of the same thumb.
 - **Spray** — extinguishes fire at range instead of moving. Only available while carrying
   a hose: pressing the spray button (paired above the "Pick up hose"/"Drop hose" button,
-  only visible then) arms aiming mode without ending the turn; the next arrow button press
+  only visible then) arms aiming mode without ending the turn, and while armed shows the
+  spray button's 🎯 target symbol in place of its usual 💦; the next arrow button press
   fires in that direction instead of moving, searching up to `hoseSprayRange` tiles in a
   straight line from the carrying player, stopping at the first wall, and extinguishing
   only the *nearest* flame tile hit along that line - flames further away on the same line
-  are left burning (`sprayHose`). Firing (or losing eligibility to spray, e.g. the burn
-  phase starting) disarms aiming mode. Doesn't move the player or change the hose's path;
-  like a move, it ends the active player's turn.
+  are left burning (`sprayHose`). While armed, every tile a spray in some direction could
+  reach is marked with a 💧 icon on the board itself (`updateSprayTargetIcons`) - dimmed
+  on a tile that isn't on fire (the water would just pass over it) and full opacity on the
+  one tile per direction, if any, that would actually be extinguished - so the player can
+  see where each arrow press would fire before committing to one. Pressing the spray
+  button again while already armed does nothing; aiming mode is only left by firing (an
+  arrow press) or by losing eligibility to spray (e.g. the burn phase starting, or
+  dropping the hose). Firing doesn't move the player or change the hose's path; like a
+  move, it ends the active player's turn.
 - **Round** — one play-through from a freshly-placed player and a freshly-ignited fire
   (`startRound`) until game over. Starting a new game, or changing the grid size in
   settings mid-game, starts a new round on a newly generated map.
