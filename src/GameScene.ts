@@ -1010,11 +1010,7 @@ export class GameScene extends Phaser.Scene {
 
     sprayButton.on("pointerdown", () => {
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
-      // Once armed (showing the 🎯 target symbol), a further press does nothing - aiming
-      // mode is only left by firing (an arrow press) or by losing eligibility to spray, not
-      // by pressing the spray button again.
-      if (this.sprayArmed) return;
-      this.sprayArmed = true;
+      this.sprayArmed = !this.sprayArmed;
       this.updateSprayButton();
     });
 
@@ -1115,7 +1111,9 @@ export class GameScene extends Phaser.Scene {
 
   // The spray button only does anything while the active player is carrying a hose;
   // pressing it arms aiming mode without ending the turn, and the next arrow press (in
-  // `sprayHose`) fires in that direction and ends the turn instead of moving.
+  // `sprayHose`) fires in that direction and ends the turn instead of moving. While armed
+  // the button reads "Cancel" instead of 💦 - pressing it again disarms aiming mode without
+  // firing.
   private updateSprayButton(): void {
     const button = this.sprayButton;
     if (!button) return;
@@ -1123,7 +1121,7 @@ export class GameScene extends Phaser.Scene {
     const available = this.canMove() && this.carriedHose(this.activePlayerIndex) !== undefined;
     if (!available) this.sprayArmed = false;
     button.setVisible(available);
-    button.setText(this.sprayArmed ? "🎯" : "💦");
+    button.setText(this.sprayArmed ? "Cancel" : "💦");
     button.setStyle({ backgroundColor: this.sprayArmed ? "#00b0ff" : "#0277bd" });
     if (available) button.setInteractive({ useHandCursor: true });
     else button.disableInteractive();

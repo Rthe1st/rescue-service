@@ -118,9 +118,10 @@ destroys and recreates the affected Phaser objects.
   than living on the map data itself, so hoses are drawn as an overlay (`drawHoses`)
   independent of tile rendering.
 - Spraying (`sprayHose`) is an alternate turn action, only reachable while carrying a
-  hose: the spray button arms `sprayArmed` without ending the turn (a further press while
-  already armed is a no-op), and the direction buttons check that flag (`createControls`'s
-  pointerdown handler) to route to `sprayHose` instead of `movePlayer` - walking up to
+  hose: the spray button toggles `sprayArmed` without ending the turn (a further press
+  while already armed disarms it again, without firing), and the direction buttons check
+  that flag (`createControls`'s pointerdown handler) to route to `sprayHose` instead of
+  `movePlayer` - walking up to
   `hoseSprayRange` tiles from the player in a straight line, stopping at the first wall,
   and extinguishing only the first (nearest) flame found along the way rather than every
   flame on the line. While armed, `updateSprayTargetIcons` runs the same walk in all four
