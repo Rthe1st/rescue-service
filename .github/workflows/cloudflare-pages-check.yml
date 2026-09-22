@@ -35,13 +35,11 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         id: deploy
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: rescue-service
-          directory: dist
-          branch: ${{ github.ref_name }}
+          command: pages deploy dist --project-name=rescue-service --branch=${{ github.ref_name }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           wranglerVersion: "4"
 
@@ -49,4 +47,4 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Check deployed page loads with no console errors
-        run: node scripts/check-deployment.mjs "${{ steps.deploy.outputs.url }}"
+        run: node scripts/check-deployment.mjs "${{ steps.deploy.outputs.deployment-url }}"
