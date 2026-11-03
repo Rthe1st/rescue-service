@@ -114,7 +114,7 @@ destroys and recreates the affected Phaser objects.
   anchor once placed - matches the active player's tile and isn't already carried by
   someone else; `carriedHose` looks up which hose, if any, a player is carrying) and,
   while carried, `movePlayer` calling `extendOrRetractHose` before committing each move -
-  growing or shrinking that hose's `path`, capped at the `maxHoseLength` setting, rather
+  growing or shrinking that hose's `path`, capped at the `maxHoseLength` setting (unless `unlimitedHoseLength` is on), rather
   than living on the map data itself, so hoses are drawn as an overlay (`drawHoses`)
   independent of tile rendering.
 - Spraying (`sprayHose`) is an alternate turn action, only reachable while carrying a

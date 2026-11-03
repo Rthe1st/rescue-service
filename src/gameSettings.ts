@@ -21,6 +21,7 @@ export const DEFAULT_PLAYER_COUNT = 1;
 export const MIN_PLAYER_COUNT = 1;
 export const MAX_PLAYER_COUNT = 8;
 export const DEFAULT_MAX_HOSE_LENGTH = 10;
+export const DEFAULT_UNLIMITED_HOSE_LENGTH = false;
 export const DEFAULT_HOSE_SPRAY_RANGE = 5;
 export const DEFAULT_HOSE_COUNT = 1;
 export const MIN_HOSE_COUNT = 0;
@@ -54,6 +55,7 @@ export interface GameParams {
   extraDoorPercent: number;
   playerCount: number;
   maxHoseLength: number;
+  unlimitedHoseLength: boolean;
   hoseSprayRange: number;
   hoseCount: number;
   fogOfWarEnabled: boolean;
@@ -78,6 +80,7 @@ export const gameSettings: GameParams = {
   extraDoorPercent: DEFAULT_EXTRA_DOOR_PERCENT,
   playerCount: DEFAULT_PLAYER_COUNT,
   maxHoseLength: DEFAULT_MAX_HOSE_LENGTH,
+  unlimitedHoseLength: DEFAULT_UNLIMITED_HOSE_LENGTH,
   hoseSprayRange: DEFAULT_HOSE_SPRAY_RANGE,
   hoseCount: DEFAULT_HOSE_COUNT,
   fogOfWarEnabled: DEFAULT_FOG_OF_WAR_ENABLED,
@@ -105,6 +108,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["extraDoorPercent"] === "number" &&
     typeof candidate["playerCount"] === "number" &&
     typeof candidate["maxHoseLength"] === "number" &&
+    typeof candidate["unlimitedHoseLength"] === "boolean" &&
     typeof candidate["hoseSprayRange"] === "number" &&
     typeof candidate["hoseCount"] === "number" &&
     typeof candidate["fogOfWarEnabled"] === "boolean" &&
@@ -191,7 +195,15 @@ export function createSettingsGui(onChange?: () => void): GUI {
   const maxHoseLengthController = gui
     .add(gameSettings, "maxHoseLength", 1, 30, 1)
     .name("Max hose length")
-    .onChange(() => onChange?.());
+    .onChange(() => onChange?.())
+    .disable(gameSettings.unlimitedHoseLength);
+  const unlimitedHoseLengthController = gui
+    .add(gameSettings, "unlimitedHoseLength")
+    .name("Unlimited hose length")
+    .onChange((unlimited: boolean) => {
+      maxHoseLengthController.disable(unlimited);
+      onChange?.();
+    });
   const hoseSprayRangeController = gui
     .add(gameSettings, "hoseSprayRange", 1, 20, 1)
     .name("Hose spray range")
@@ -252,6 +264,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.extraDoorPercent = preset.extraDoorPercent;
     gameSettings.playerCount = preset.playerCount;
     gameSettings.maxHoseLength = preset.maxHoseLength;
+    gameSettings.unlimitedHoseLength = preset.unlimitedHoseLength;
     gameSettings.hoseSprayRange = preset.hoseSprayRange;
     gameSettings.hoseCount = preset.hoseCount;
     gameSettings.fogOfWarEnabled = preset.fogOfWarEnabled;
@@ -273,6 +286,8 @@ export function createSettingsGui(onChange?: () => void): GUI {
     extraDoorPercentController.updateDisplay();
     playerCountController.updateDisplay();
     maxHoseLengthController.updateDisplay();
+    maxHoseLengthController.disable(gameSettings.unlimitedHoseLength);
+    unlimitedHoseLengthController.updateDisplay();
     hoseSprayRangeController.updateDisplay();
     hoseCountController.updateDisplay();
     fogOfWarEnabledController.updateDisplay();

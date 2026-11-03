@@ -162,6 +162,7 @@ export class GameScene extends Phaser.Scene {
   private sprayButton: Phaser.GameObjects.Text | undefined;
   private sprayArmed = false;
   private maxHoseLength = gameSettings.maxHoseLength;
+  private unlimitedHoseLength = gameSettings.unlimitedHoseLength;
   private hoseSprayRange = gameSettings.hoseSprayRange;
   private hoseCount = gameSettings.hoseCount;
   private fogOfWarEnabled = gameSettings.fogOfWarEnabled;
@@ -278,6 +279,7 @@ export class GameScene extends Phaser.Scene {
     this.doorCount = gameSettings.doorCount;
     this.extraDoorPercent = gameSettings.extraDoorPercent;
     this.maxHoseLength = gameSettings.maxHoseLength;
+    this.unlimitedHoseLength = gameSettings.unlimitedHoseLength;
     this.hoseSprayRange = gameSettings.hoseSprayRange;
     this.hoseCount = gameSettings.hoseCount;
     this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
@@ -1092,7 +1094,7 @@ export class GameScene extends Phaser.Scene {
 
   // Called only while the active player is carrying a hose, before their move is
   // otherwise committed. Returns whether the move is allowed: growing the hose past
-  // `maxHoseLength` is blocked, but retracting it - stepping back onto the tile the
+  // `maxHoseLength` (unless `unlimitedHoseLength` is set) is blocked, but retracting it - stepping back onto the tile the
   // hose's loose end just came from - is always allowed, even at max length.
   private extendOrRetractHose(row: number, col: number): boolean {
     const hose = this.carriedHose(this.activePlayerIndex);
@@ -1104,7 +1106,7 @@ export class GameScene extends Phaser.Scene {
       path.pop();
       return true;
     }
-    if (path.length >= this.maxHoseLength) return false;
+    if (!this.unlimitedHoseLength && path.length >= this.maxHoseLength) return false;
     path.push({ row, col });
     return true;
   }
