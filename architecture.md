@@ -167,7 +167,8 @@ panel bound directly to that object's fields via `.onChange`, so any scene that 
 the panel (currently `MainMenuScene` and `GameScene`) edits the same live settings and
 can react to changes (e.g. `GameScene` regenerates the map if `gridSize` changed).
 Presets are named snapshots of the whole `GameParams` object, validated with
-`isGameParams` and persisted to `localStorage` under a fixed key.
+`isGameParams` and persisted to `localStorage` under a fixed key. The built-in `standard`
+preset (`STANDARD_PRESET`) is merged in at load time and excluded when saving.
 
 ## Testing
 

@@ -150,6 +150,7 @@ export class GameScene extends Phaser.Scene {
   private doorCount = gameSettings.doorCount;
   private extraDoorPercent = gameSettings.extraDoorPercent;
   private gameOver = false;
+  private gameWon = false;
   private timerText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
   private turnOrderText!: Phaser.GameObjects.Text;
@@ -297,6 +298,7 @@ export class GameScene extends Phaser.Scene {
     this.phase = "firefighting";
     this.phaseTimerMs = this.firefightingDurationMs;
     this.gameOver = false;
+    this.gameWon = false;
     this.flames = new Set();
     this.igniteRandomFlame();
     this.updateTurnOrderText();
@@ -1217,6 +1219,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.sprayArmed = false;
+    if (this.flames.size === 0) {
+      this.gameWon = true;
+      this.endGame();
+      return;
+    }
     this.activePlayerIndex = (this.activePlayerIndex + 1) % this.players.length;
     this.updateTurnOrderText();
     this.updateActivePlayerBorder();
@@ -1401,7 +1408,11 @@ export class GameScene extends Phaser.Scene {
     if (this.gameOver) {
       this.timerText.setVisible(false);
       this.statusText
-        .setText("💀 Caught in the flames! Game Over")
+        .setText(
+          this.gameWon
+            ? "🎉 The fire is out! Game Complete"
+            : "💀 Caught in the flames! Game Over"
+        )
         .setVisible(true);
       return;
     }
