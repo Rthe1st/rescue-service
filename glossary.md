@@ -83,7 +83,7 @@ where it isn't obvious, how it's represented in code.
   player can't be picked up (`carriedHose`). While carried, each move extends the hose
   through the tile just walked into, unless that tile is the one the hose's loose end just
   came from, in which case the hose retracts there instead (`extendOrRetractHose`). A hose
-  can never occupy more than `maxHoseLength` tiles - once at that length, the carrying
+  can never occupy more than `maxHoseLength` tiles (unless `unlimitedHoseLength` is on) - once at that length, the carrying
   player can't move to a new tile until they either drop the hose or retract it. Dropping
   leaves the hose lying in place until someone picks it up again from its loose end. Every
   hose is rendered as a thick red line through every tile it occupies, with a small circle
@@ -216,7 +216,10 @@ so every scene's panel stays in sync. Settings can be saved/loaded as named pres
 - **`playerCount`** ("Number of players") — how many player characters are in play; see
   **Player character** above.
 - **`maxHoseLength`** ("Max hose length") — the most tiles a fire hose can occupy at
-  once; see **Fire hose** above.
+  once; see **Fire hose** above. Ignored while `unlimitedHoseLength` is on.
+- **`unlimitedHoseLength`** ("Unlimited hose length") — checkbox (default off) that removes
+  the `maxHoseLength` cap so hoses can be any length; the max-length slider is disabled
+  while it is on.
 - **`hoseSprayRange`** ("Hose spray range") — how far the spray searches for a flame to
   extinguish; see **Spray** above.
 - **`hoseCount`** ("Number of hoses") — how many fire hoses (0-10) are placed on the map
