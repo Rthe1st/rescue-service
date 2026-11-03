@@ -92,6 +92,20 @@ export const gameSettings: GameParams = {
   forgottenCellOpacity: DEFAULT_FORGOTTEN_CELL_OPACITY,
 };
 
+// Built-in preset, always available (not stored in localStorage, can't be overwritten):
+// the defaults, but tuned so a game is completable: longer hose, short firefighting
+// phase, and fog of war with unlimited static memory.
+export const STANDARD_PRESET_NAME = "standard";
+export const STANDARD_PRESET: GameParams = {
+  ...gameSettings,
+  maxHoseLength: 30,
+  firefightingDurationSeconds: 5,
+  fogOfWarEnabled: true,
+  fogOfWarUnlimitedMemory: true,
+  fogOfWarStaticMemory: true,
+  lineOfSightMode: "room-plus",
+};
+
 function isGameParams(value: unknown): value is GameParams {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -141,7 +155,10 @@ function loadPresets(): Record<string, GameParams> {
 }
 
 function savePresets(presets: Record<string, GameParams>): void {
-  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+  const custom = Object.fromEntries(
+    Object.entries(presets).filter(([name]) => name !== STANDARD_PRESET_NAME)
+  );
+  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(custom));
 }
 
 // Binds directly to the shared `gameSettings` object so any scene's panel stays in sync.
@@ -245,7 +262,11 @@ export function createSettingsGui(onChange?: () => void): GUI {
     .name("Forgotten cell opacity (%)")
     .onChange(() => onChange?.());
 
-  const presets = loadPresets();
+  const presets: Record<string, GameParams> = {
+    [STANDARD_PRESET_NAME]: { ...STANDARD_PRESET },
+    ...loadPresets(),
+  };
+  presets[STANDARD_PRESET_NAME] = { ...STANDARD_PRESET };
   const presetState = { preset: "", presetName: "" };
 
   const applyPreset = (name: string): void => {
@@ -316,7 +337,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
       {
         save: () => {
           const name = presetState.presetName.trim();
-          if (!name) return;
+          if (!name || name === STANDARD_PRESET_NAME) return;
 
           presets[name] = { ...gameSettings };
           savePresets(presets);

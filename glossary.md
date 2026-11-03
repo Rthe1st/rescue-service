@@ -72,6 +72,9 @@ where it isn't obvious, how it's represented in code.
   happens by moving into a flame during firefighting or by a flame spreading onto the
   player's tile during the burn phase (`endGame`). Movement stops and the status text
   shows "Caught in the flames! Game Over".
+- **Game complete** — reached the instant the last flame is sprayed out
+  (`sprayHose` leaves `flames` empty). Sets `gameWon` and ends the round via `endGame`;
+  the status text shows "The fire is out! Game Complete".
 - **Fire hose** — an object a player character can carry, tracked as an entry in
   `GameScene.hoses` as `{ path, carriedBy }`. Each round, `hoseCount` of them (a setting)
   are placed on distinct random outer-ring tiles (`placeHosesAtStart`); each hose's
@@ -187,7 +190,9 @@ where it isn't obvious, how it's represented in code.
 All adjustable via the gear icon's debug panel (`createSettingsGui` in
 `src/gameSettings.ts`), which reads and writes the shared `gameSettings` object directly
 so every scene's panel stays in sync. Settings can be saved/loaded as named presets in
-`localStorage`.
+`localStorage`. A built-in **"standard"** preset (always listed, not overwritable) uses
+the defaults except: hose length 30, firefighting duration 5s, fog of war on with
+unlimited + static memory, and `room-plus` line of sight.
 
 - **`gridSize`** ("Number of squares") — the map's width and height in tiles. Changing it
   regenerates the map and starts a new round.
