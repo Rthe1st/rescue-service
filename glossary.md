@@ -191,7 +191,7 @@ All adjustable via the gear icon's debug panel (`createSettingsGui` in
 `src/gameSettings.ts`), which reads and writes the shared `gameSettings` object directly
 so every scene's panel stays in sync. Settings can be saved/loaded as named presets in
 `localStorage`. A built-in **"standard"** preset (always listed, not overwritable) uses
-the defaults except: hose length 30, firefighting duration 5s, fog of war on with
+the defaults except: hose length 30 and unlimited hose length on, firefighting duration 5s, fog of war on with
 unlimited + static memory, and `room-plus` line of sight.
 
 - **`gridSize`** ("Number of squares") — the map's width and height in tiles. Changing it

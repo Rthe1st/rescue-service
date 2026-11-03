@@ -99,6 +99,7 @@ export const STANDARD_PRESET_NAME = "standard";
 export const STANDARD_PRESET: GameParams = {
   ...gameSettings,
   maxHoseLength: 30,
+  unlimitedHoseLength: true,
   firefightingDurationSeconds: 5,
   fogOfWarEnabled: true,
   fogOfWarUnlimitedMemory: true,
