@@ -11,4 +11,10 @@
       }
     ]
   }
+  "permissions": {
+    "allow": [
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push * --force-with-lease:*)"
+    ]
+  }
 }
