@@ -20,7 +20,7 @@ game concepts named here (tiles, walls, rooms, doors, phases, ...) actually mean
 
 Everything lives flat in `src/`, no subdirectories:
 
-- `main.ts` — creates the single `Phaser.Game` instance and registers the three scenes.
+- `main.ts` — creates the single `Phaser.Game` instance and registers the four scenes.
 - `gameSettings.ts` — the mutable `gameSettings` object, its defaults, and the
   `createSettingsGui` panel (including preset save/load via `localStorage`).
 - `mapGeneration.ts` — pure, framework-free map data structure and generation logic. No
@@ -28,7 +28,9 @@ Everything lives flat in `src/`, no subdirectories:
 - `visibility.ts` — pure, framework-free fog-of-war line-of-sight logic
   (`computeVisibleTiles`/`computeVisibleTilesForAll`, `roomAt`), same style as
   `mapGeneration.ts` and unit tested the same way.
-- `MainMenuScene.ts`, `MapPreviewScene.ts`, `GameScene.ts` — one Phaser `Scene` subclass
+- `replay.ts` — pure, framework-free replay types/helpers (`ReplayFrame`, speed steps,
+  `cloneFrame`), unit tested in `replay.test.ts`.
+- `MainMenuScene.ts`, `MapPreviewScene.ts`, `GameScene.ts`, `ReplayScene.ts` — one Phaser `Scene` subclass
   each, registered in `main.ts` and switched between with `this.scene.start(...)`.
 
 ## Map representation
@@ -158,6 +160,17 @@ destroys and recreates the affected Phaser objects.
   separate layer rather than baked into `squareFill`'s returned color so it composites over
   whatever `squareFill` rendered (including `fogOfWarStaticMemory`'s live-looking snapshot),
   instead of replacing it.
+
+## Replay
+
+`GameScene` records a `ReplayFrame` (deep-copied player positions, flames, hoses, active
+player, label) via `recordFrame` at round start and after every move, spray, hose
+pickup/drop and flame spread. At game over a "Watch replay" button starts `ReplayScene`,
+passing the map, grid size and frames. `ReplayScene` redraws the board from the current frame
+(no live game state), auto-advances at `stepDurationMs(speed)` (1s/move at 1x, speed adjustable
+via `adjustSpeed`), and offers pause/play, previous/next and a fog-of-war toggle (off by
+default; when on it dims tiles outside every player's current line of sight and hides fire
+there, with no memory).
 
 ## Settings
 
