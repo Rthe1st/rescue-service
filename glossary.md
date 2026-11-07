@@ -258,3 +258,8 @@ unlimited + static memory, and `room-plus` line of sight.
   (never seen, or fallen out of the memory window); clamped to 0–100
   (`MIN_FORGOTTEN_CELL_OPACITY`/`MAX_FORGOTTEN_CELL_OPACITY`), defaulting to
   `DEFAULT_FORGOTTEN_CELL_OPACITY` (100, fully opaque); see **Fog of war** above.
+
+- **Replay** — after game over, a "Watch replay" button plays the finished round back move by
+  move (start, each move/spray/hose pickup or drop, each fire spread). Fog of war is off by
+  default and can be toggled; playback defaults to 1 second per move with adjustable speed,
+  pause/play, and previous/next buttons.

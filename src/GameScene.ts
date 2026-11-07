@@ -13,6 +13,7 @@ import {
   type WallSegment,
 } from "./mapGeneration";
 import { generatePlayerNames } from "./playerNames";
+import { cloneFrame, type ReplayFrame } from "./replay";
 import { computeVisibleTilesForAll } from "./visibility";
 
 const CONTROLS_AREA_SIZE = 140;
@@ -175,6 +176,8 @@ export class GameScene extends Phaser.Scene {
   private forgottenCellOpacity = gameSettings.forgottenCellOpacity;
   private visibleTiles = new Set<string>();
   private visibilityHistory: VisibilitySnapshot[] = [];
+  private replayFrames: ReplayFrame[] = [];
+  private replayButton: Phaser.GameObjects.Text | undefined;
 
   constructor() {
     super({ key: "GameScene" });
@@ -262,6 +265,7 @@ export class GameScene extends Phaser.Scene {
 
     const handleResize = (): void => {
       this.endGameButton?.setX(this.scale.width / 2);
+      this.replayButton?.setX(this.scale.width - 20);
       this.layout();
     };
     this.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
@@ -301,6 +305,8 @@ export class GameScene extends Phaser.Scene {
     this.gameWon = false;
     this.flames = new Set();
     this.igniteRandomFlame();
+    this.replayFrames = [];
+    this.recordFrame("Start");
     this.updateTurnOrderText();
 
     // A fresh round starts with nothing remembered yet, even on an unchanged map - then
@@ -1093,6 +1099,8 @@ export class GameScene extends Phaser.Scene {
     if (!action) return;
 
     action.hose.carriedBy = action.type === "pickup" ? this.activePlayerIndex : null;
+    const holder = this.players[this.activePlayerIndex];
+    this.recordFrame(`${holder?.name ?? "Player"} ${action.type === "pickup" ? "picked up" : "dropped"} a hose`);
 
     this.updateHoseButton();
     this.updateSprayButton();
@@ -1224,6 +1232,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.sprayArmed = false;
+    this.recordFrame(`${player.name} sprayed`);
     if (this.flames.size === 0) {
       this.gameWon = true;
       this.endGame();
@@ -1305,6 +1314,8 @@ export class GameScene extends Phaser.Scene {
     this.playerLabels.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
     this.drawHoses();
 
+    this.recordFrame(`${player.name} moved`);
+
     if (this.isAnyPlayerOnFlame()) {
       this.endGame();
       return;
@@ -1345,6 +1356,7 @@ export class GameScene extends Phaser.Scene {
     this.phase = "burn";
     this.phaseTimerMs = BURN_PHASE_DURATION_MS;
     this.spreadFlames();
+    this.recordFrame("Fire spread");
     this.layout();
 
     if (this.isAnyPlayerOnFlame()) {
@@ -1367,6 +1379,40 @@ export class GameScene extends Phaser.Scene {
     this.layout();
     this.refreshAllSquareFills();
     this.updatePhaseText();
+    this.showReplayButton();
+  }
+
+  private recordFrame(label: string): void {
+    this.replayFrames.push(
+      cloneFrame({
+        players: this.players,
+        activePlayerIndex: this.activePlayerIndex,
+        flames: [...this.flames],
+        hoses: this.hoses,
+        label,
+      })
+    );
+  }
+
+  private showReplayButton(): void {
+    this.replayButton?.destroy();
+    const button = this.add
+      .text(this.scale.width - 20, 30, "▶ Watch replay", {
+        fontSize: "16px",
+        color: "#ffffff",
+        backgroundColor: "#1565c0",
+        padding: { x: 10, y: 6 },
+      })
+      .setOrigin(1, 0.5)
+      .setInteractive({ useHandCursor: true });
+    button.on("pointerdown", () =>
+      this.scene.start("ReplayScene", {
+        map: this.map,
+        gridSize: this.gridSize,
+        frames: this.replayFrames,
+      })
+    );
+    this.replayButton = button;
   }
 
   private spreadFlames(): void {
