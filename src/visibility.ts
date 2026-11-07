@@ -92,6 +92,9 @@ function doorPeekTiles(map: GameMap, room: Room | undefined, player: Point): Set
     const isHorizontalDoor = outside.x !== inside.x;
     const inLine = isHorizontalDoor ? player.y === inside.y : player.x === inside.x;
     if (!inLine) continue;
+    // Rooms are convex, so being in line inside one is always an unobstructed view of the door.
+    // Outdoors that isn't true - other rooms can sit between the player and the door.
+    if (!room && !hasLineOfSight(map, player, inside)) continue;
 
     for (const key of doorConeTiles(map, inside, outside)) tiles.add(key);
   }

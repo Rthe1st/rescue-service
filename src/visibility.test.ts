@@ -271,6 +271,18 @@ describe("computeVisibleTiles", () => {
       expect(offLine.has(pointKey(3, 4))).toBe(false);
     });
 
+    it("does not peek through a door from outdoors when another room blocks the line", () => {
+      const map = createOpenMap(14, 10);
+      addRoom(map, { left: 0, top: 3, width: 4, height: 4 });
+      addRoom(map, { left: 6, top: 3, width: 2, height: 4 });
+      openDoor(map, 3, 4, 4, 4);
+      map.grass = computeGrassTiles(map);
+
+      const visible = computeVisibleTiles(map, { x: 12, y: 4 }, "room-plus");
+      expect(visible.has(pointKey(3, 4))).toBe(false);
+      expect(visible.has(pointKey(1, 4))).toBe(false);
+    });
+
     it("behaves like room mode when not in a room", () => {
       const map = createOpenMap(10, 10);
       addRoom(map, { left: 3, top: 3, width: 2, height: 2 });
