@@ -113,7 +113,8 @@ where it isn't obvious, how it's represented in code.
 - **Round** — one play-through from a freshly-placed player and a freshly-ignited fire
   (`startRound`) until game over. Starting a new game, or changing the grid size in
   settings mid-game, starts a new round on a newly generated map.
-- **Fog of war** — when `fogOfWarEnabled`, tiles are only rendered with their true state if
+- **Fog of war** — when `fogOfWarEnabled` (and the game isn't over - fog lifts at game over so the
+  whole map is revealed), tiles are only rendered with their true state if
   currently *visible*, per `lineOfSightMode` (see `computeVisibleTiles`/
   `computeVisibleTilesForAll` in `src/visibility.ts`, which multiple player characters
   combine by union):
