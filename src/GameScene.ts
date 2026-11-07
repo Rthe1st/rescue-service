@@ -777,8 +777,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Fog of war lifts once the game is over so the player can see the whole map.
+  private fogActive(): boolean {
+    return this.fogOfWarEnabled && !this.gameOver;
+  }
+
   private squareFill(row: number, col: number): number {
-    if (!this.fogOfWarEnabled) return this.liveSquareFill(row, col);
+    if (!this.fogActive()) return this.liveSquareFill(row, col);
 
     const key = squareKey(row, col);
     if (this.visibleTiles.has(key)) return this.liveSquareFill(row, col);
@@ -801,7 +806,7 @@ export class GameScene extends Phaser.Scene {
   // color, so "half-remembered" and "never seen" can still be told apart, and either can be
   // made more or less transparent to peek at the terrain underneath.
   private overlayAlphaFor(row: number, col: number): number | undefined {
-    if (!this.fogOfWarEnabled) return undefined;
+    if (!this.fogActive()) return undefined;
     const key = squareKey(row, col);
     if (this.visibleTiles.has(key)) return undefined;
 
@@ -1360,6 +1365,7 @@ export class GameScene extends Phaser.Scene {
   private endGame(): void {
     this.gameOver = true;
     this.layout();
+    this.refreshAllSquareFills();
     this.updatePhaseText();
   }
 
