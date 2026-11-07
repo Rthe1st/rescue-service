@@ -168,7 +168,8 @@ the panel (currently `MainMenuScene` and `GameScene`) edits the same live settin
 can react to changes (e.g. `GameScene` regenerates the map if `gridSize` changed).
 Presets are named snapshots of the whole `GameParams` object, validated with
 `isGameParams` and persisted to `localStorage` under a fixed key. The built-in `standard`
-preset (`STANDARD_PRESET`) is merged in at load time and excluded when saving.
+preset (`STANDARD_PRESET`) is merged in at load time and excluded when saving. It is also
+the initial value of `gameSettings`, so new games start with the standard settings.
 
 ## Testing
 

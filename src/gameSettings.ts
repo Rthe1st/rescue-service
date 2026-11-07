@@ -67,7 +67,7 @@ export interface GameParams {
   forgottenCellOpacity: number;
 }
 
-export const gameSettings: GameParams = {
+const BASE_DEFAULTS: GameParams = {
   gridSize: DEFAULT_GRID_SIZE,
   cellSizeScale: DEFAULT_CELL_SIZE_SCALE,
   buttonSize: DEFAULT_BUTTON_FONT_SIZE,
@@ -93,11 +93,11 @@ export const gameSettings: GameParams = {
 };
 
 // Built-in preset, always available (not stored in localStorage, can't be overwritten):
-// the defaults, but tuned so a game is completable: longer hose, short firefighting
-// phase, and fog of war with unlimited static memory.
+// the base defaults, but tuned so a game is completable: longer hose, short firefighting
+// phase, and fog of war with unlimited static memory. New games start from this preset.
 export const STANDARD_PRESET_NAME = "standard";
 export const STANDARD_PRESET: GameParams = {
-  ...gameSettings,
+  ...BASE_DEFAULTS,
   maxHoseLength: 30,
   unlimitedHoseLength: true,
   firefightingDurationSeconds: 5,
@@ -106,6 +106,9 @@ export const STANDARD_PRESET: GameParams = {
   fogOfWarStaticMemory: true,
   lineOfSightMode: "room-plus",
 };
+
+// Live settings, initialised from the standard preset.
+export const gameSettings: GameParams = { ...STANDARD_PRESET };
 
 function isGameParams(value: unknown): value is GameParams {
   if (typeof value !== "object" || value === null) return false;
@@ -268,7 +271,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     ...loadPresets(),
   };
   presets[STANDARD_PRESET_NAME] = { ...STANDARD_PRESET };
-  const presetState = { preset: "", presetName: "" };
+  const presetState = { preset: STANDARD_PRESET_NAME, presetName: "" };
 
   const applyPreset = (name: string): void => {
     const preset = presets[name];
