@@ -145,6 +145,8 @@ where it isn't obvious, how it's represented in code.
     directly on the other side of that door - it's bounded to that space's own tiles, so it
     stops at that room's far wall rather than continuing through a second doorway into a
     room beyond it, even though the triangle would otherwise geometrically reach that far.
+    The same peek works from outdoors: a player character standing in line with a door from
+    the outdoor side (including doors on the map's edge) peeks into the room behind it.
   Everything else is either **memorized** or **fogged**:
   - Every move (a player character's position changing, including the round's starting
     positions as "move zero") records a snapshot of what was visible at that moment -

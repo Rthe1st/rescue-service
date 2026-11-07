@@ -256,6 +256,21 @@ describe("computeVisibleTiles", () => {
       expect(roomPlus).toEqual(withDoor);
     });
 
+    it("peeks into a room through a door from outdoors, including at the map edge", () => {
+      const map = createOpenMap(10, 10);
+      const room = addRoom(map, { left: 0, top: 3, width: 4, height: 4 });
+      openDoor(map, 3, 4, 4, 4);
+      map.grass = computeGrassTiles(map);
+
+      const lined = computeVisibleTiles(map, { x: 8, y: 4 }, "room-plus");
+      expect(lined.has(pointKey(3, 4))).toBe(true);
+      expect(lined.has(pointKey(room.left, 4))).toBe(true);
+      expect(lined.has(pointKey(0, 3))).toBe(true);
+
+      const offLine = computeVisibleTiles(map, { x: 8, y: 8 }, "room-plus");
+      expect(offLine.has(pointKey(3, 4))).toBe(false);
+    });
+
     it("behaves like room mode when not in a room", () => {
       const map = createOpenMap(10, 10);
       addRoom(map, { left: 3, top: 3, width: 2, height: 2 });

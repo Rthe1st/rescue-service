@@ -48,8 +48,7 @@ export function computeVisibleTiles(map: GameMap, player: Point, mode: LineOfSig
   const room = roomAt(map, player.x, player.y);
 
   if (mode === "room" || mode === "room-plus") {
-    if (!room) return new Set(map.grass);
-    const visible = roomTiles(room);
+    const visible = room ? roomTiles(room) : new Set(map.grass);
     if (mode === "room-plus") {
       for (const key of doorPeekTiles(map, room, player)) visible.add(key);
     }
@@ -75,12 +74,13 @@ function roomTiles(room: Room): Set<string> {
 }
 
 /** The triangular door-peek tiles (see `LineOfSightMode`'s `"room-plus"` doc) for every door
- * on `room`'s own walls that `player` is standing in a direct line with. */
-function doorPeekTiles(map: GameMap, room: Room, player: Point): Set<string> {
+ * on the player's own space (`room`, or the outdoor area if undefined) that `player` is
+ * standing in a direct line with. */
+function doorPeekTiles(map: GameMap, room: Room | undefined, player: Point): Set<string> {
   const tiles = new Set<string>();
   for (const segment of getDoorSegments(map)) {
-    const oneIn = tileInRoom(room, segment.x1, segment.y1);
-    const otherIn = tileInRoom(room, segment.x2, segment.y2);
+    const oneIn = roomAt(map, segment.x1, segment.y1) === room;
+    const otherIn = roomAt(map, segment.x2, segment.y2) === room;
     if (oneIn === otherIn) continue;
 
     const inside = oneIn ? { x: segment.x1, y: segment.y1 } : { x: segment.x2, y: segment.y2 };
