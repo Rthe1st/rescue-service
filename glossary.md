@@ -106,8 +106,10 @@ where it isn't obvious, how it's represented in code.
   isn't on fire (the water would just pass over it) and full opacity on the one tile per
   direction, if any, that would actually be extinguished - so the player can see where
   each arrow press would fire before committing to one. Pressing the spray button again
-  while already armed (now reading "Cancel") disarms aiming mode without firing. Firing
-  (or losing eligibility to spray, e.g. the burn phase starting) also disarms aiming mode.
+  while already armed (now reading "Cancel") disarms aiming mode without firing. Aiming mode
+  is sticky per player: firing doesn't disarm it, so the player's next turn with the hose
+  starts armed too (arrows keep spraying instead of moving) until they press Cancel.
+  Dropping the hose (or the burn phase starting) disarms it.
   Firing doesn't move the player or change the hose's path; like a move, it ends the
   active player's turn.
 - **Round** — one play-through from a freshly-placed player and a freshly-ignited fire
