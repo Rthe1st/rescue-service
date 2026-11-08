@@ -162,7 +162,12 @@ export class GameScene extends Phaser.Scene {
   private hoseGraphics: Phaser.GameObjects.Graphics | undefined;
   private hoseButton: Phaser.GameObjects.Text | undefined;
   private sprayButton: Phaser.GameObjects.Text | undefined;
-  private sprayArmed = false;
+  // Players with spray mode on. Stays on after firing (and across that player's later
+  // turns) until they press Cancel or stop carrying a hose.
+  private sprayArmedPlayers = new Set<number>();
+  private get sprayArmed(): boolean {
+    return this.sprayArmedPlayers.has(this.activePlayerIndex);
+  }
   private maxHoseLength = gameSettings.maxHoseLength;
   private unlimitedHoseLength = gameSettings.unlimitedHoseLength;
   private hoseSprayRange = gameSettings.hoseSprayRange;
@@ -286,6 +291,7 @@ export class GameScene extends Phaser.Scene {
     this.maxHoseLength = gameSettings.maxHoseLength;
     this.unlimitedHoseLength = gameSettings.unlimitedHoseLength;
     this.hoseSprayRange = gameSettings.hoseSprayRange;
+    this.sprayArmedPlayers.clear();
     this.hoseCount = gameSettings.hoseCount;
     this.fogOfWarEnabled = gameSettings.fogOfWarEnabled;
     this.fogOfWarMemoryMoves = gameSettings.fogOfWarMemoryMoves;
@@ -1025,7 +1031,8 @@ export class GameScene extends Phaser.Scene {
 
     sprayButton.on("pointerdown", () => {
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
-      this.sprayArmed = !this.sprayArmed;
+      if (this.sprayArmed) this.sprayArmedPlayers.delete(this.activePlayerIndex);
+      else this.sprayArmedPlayers.add(this.activePlayerIndex);
       this.updateSprayButton();
     });
 
@@ -1136,7 +1143,10 @@ export class GameScene extends Phaser.Scene {
     if (!button) return;
 
     const available = this.canMove() && this.carriedHose(this.activePlayerIndex) !== undefined;
-    if (!available) this.sprayArmed = false;
+    // Drop spray mode for any player no longer carrying a hose (dropped it, round over).
+    for (const index of [...this.sprayArmedPlayers]) {
+      if (!this.canMove() || !this.carriedHose(index)) this.sprayArmedPlayers.delete(index);
+    }
     button.setVisible(available);
     button.setText(this.sprayArmed ? "Cancel" : "💦");
     button.setStyle({ backgroundColor: this.sprayArmed ? "#00b0ff" : "#0277bd" });
@@ -1231,7 +1241,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.sprayArmed = false;
     this.recordFrame(`${player.name} sprayed`);
     if (this.flames.size === 0) {
       this.gameWon = true;

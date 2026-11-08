@@ -120,8 +120,11 @@ destroys and recreates the affected Phaser objects.
   than living on the map data itself, so hoses are drawn as an overlay (`drawHoses`)
   independent of tile rendering.
 - Spraying (`sprayHose`) is an alternate turn action, only reachable while carrying a
-  hose: the spray button toggles `sprayArmed` without ending the turn (a further press
-  while already armed disarms it again, without firing), and the direction buttons check
+  hose: the spray button toggles the active player's membership in `sprayArmedPlayers`
+  (`sprayArmed` getter) without ending the turn (a further press while already armed
+  disarms it again, without firing). Spray mode is sticky: firing doesn't clear it, so the
+  player stays armed on their later turns until they press Cancel or stop carrying a hose
+  (`updateSprayButton` prunes players who no longer carry one), and the direction buttons check
   that flag (`createControls`'s pointerdown handler) to route to `sprayHose` instead of
   `movePlayer` - walking up to
   `hoseSprayRange` tiles from the player in a straight line, stopping at the first wall,
