@@ -210,6 +210,10 @@ unlimited + static memory, and `room-plus` line of sight.
 - **`spreadDirections`** ("Flame spread directions") — how many of a flame's (up to 4)
   open neighboring directions it spreads into each burn phase; picked randomly each time
   when fewer than 4.
+- **`actionDurationSeconds`** ("Action duration (s)") — 0.5–5s (default 1s). After any
+  action (a move, firing the spray, picking up/dropping a hose, arming/cancelling spray
+  mode) every action button (arrows, hose, spray/cancel) is disabled for this long. A
+  translucent clock-style wedge over each button shrinks and fades as the time runs out.
 - **`editMapsBeforePlay`** ("Edit maps before play") — whether Start on the main menu
   routes through `MapPreviewScene` first instead of going directly into `GameScene`.
 - **`generationStepDelayMs`** ("Map generation step delay (ms)") — the delay between

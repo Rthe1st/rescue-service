@@ -148,6 +148,11 @@ export class GameScene extends Phaser.Scene {
   private firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
   private phaseTimerMs = this.firefightingDurationMs;
   private spreadDirections = gameSettings.spreadDirections;
+  // Global cooldown after any player action (move, spray, hose pickup/drop, spray
+  // arm/cancel): every action button is disabled until it expires.
+  private actionDurationMs = gameSettings.actionDurationSeconds * 1000;
+  private actionCooldownMs = 0;
+  private cooldownGraphics: Phaser.GameObjects.Graphics | undefined;
   private doorCount = gameSettings.doorCount;
   private extraDoorPercent = gameSettings.extraDoorPercent;
   private gameOver = false;
@@ -286,6 +291,7 @@ export class GameScene extends Phaser.Scene {
     this.buttonSpacing = gameSettings.buttonSpacing;
     this.firefightingDurationMs = gameSettings.firefightingDurationSeconds * 1000;
     this.spreadDirections = gameSettings.spreadDirections;
+    this.actionDurationMs = gameSettings.actionDurationSeconds * 1000;
     this.doorCount = gameSettings.doorCount;
     this.extraDoorPercent = gameSettings.extraDoorPercent;
     this.maxHoseLength = gameSettings.maxHoseLength;
@@ -309,6 +315,8 @@ export class GameScene extends Phaser.Scene {
     this.phaseTimerMs = this.firefightingDurationMs;
     this.gameOver = false;
     this.gameWon = false;
+    this.actionCooldownMs = 0;
+    this.cooldownGraphics?.clear();
     this.flames = new Set();
     this.igniteRandomFlame();
     this.replayFrames = [];
@@ -974,6 +982,7 @@ export class GameScene extends Phaser.Scene {
           button.setStyle({ backgroundColor: "#1565c0" })
         );
         button.on("pointerdown", () => {
+          if (this.onCooldown) return;
           if (this.sprayArmed) {
             this.sprayHose(direction.dRow, direction.dCol);
           } else {
@@ -1030,10 +1039,12 @@ export class GameScene extends Phaser.Scene {
     if (fixedSize) sprayButton.setFixedSize(fixedSize.width, fixedSize.height);
 
     sprayButton.on("pointerdown", () => {
+      if (this.onCooldown) return;
       if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
       if (this.sprayArmed) this.sprayArmedPlayers.delete(this.activePlayerIndex);
       else this.sprayArmedPlayers.add(this.activePlayerIndex);
       this.updateSprayButton();
+      this.startActionCooldown();
     });
 
     const hoseY = fixedSize ? centerY + (fixedSize.height / 2 + halfGap) : centerY + halfGap;
@@ -1102,6 +1113,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private toggleHoseCarry(): void {
+    if (this.onCooldown) return;
     const action = this.hoseAction();
     if (!action) return;
 
@@ -1112,6 +1124,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHoseButton();
     this.updateSprayButton();
     this.drawHoses();
+    this.startActionCooldown();
   }
 
   // Called only while the active player is carrying a hose, before their move is
@@ -1222,7 +1235,7 @@ export class GameScene extends Phaser.Scene {
   // a move for the turn instead, so it advances the active player same as `movePlayer`
   // does.
   private sprayHose(dRow: number, dCol: number): void {
-    if (!this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
+    if (this.onCooldown || !this.canMove() || !this.carriedHose(this.activePlayerIndex)) return;
     const player = this.players[this.activePlayerIndex];
     if (!player) return;
 
@@ -1241,6 +1254,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    this.startActionCooldown();
     this.recordFrame(`${player.name} sprayed`);
     if (this.flames.size === 0) {
       this.gameWon = true;
@@ -1275,12 +1289,63 @@ export class GameScene extends Phaser.Scene {
     return bounds;
   }
 
+  private startActionCooldown(): void {
+    this.actionCooldownMs = this.actionDurationMs;
+    this.drawActionCooldown();
+  }
+
+  private get onCooldown(): boolean {
+    return this.actionCooldownMs > 0;
+  }
+
+  private actionButtons(): Phaser.GameObjects.Text[] {
+    const buttons = [...this.controlButtons];
+    if (this.hoseButton) buttons.push(this.hoseButton);
+    if (this.sprayButton?.visible) buttons.push(this.sprayButton);
+    return buttons;
+  }
+
+  // Dims every action button and overlays a translucent clock-style wedge covering the
+  // time still left, which fades out as the cooldown runs down.
+  private drawActionCooldown(): void {
+    if (!this.cooldownGraphics) {
+      this.cooldownGraphics = this.add.graphics().setDepth(10);
+    }
+    const g = this.cooldownGraphics;
+    g.clear();
+    if (!this.onCooldown) return;
+
+    const fraction = Math.min(1, this.actionCooldownMs / Math.max(1, this.actionDurationMs));
+    for (const button of this.actionButtons()) {
+      button.setAlpha(0.4);
+      const radius = Math.max(button.displayWidth, button.displayHeight) / 2;
+      const center = button.getCenter();
+      g.fillStyle(0x000000, 0.6 * fraction);
+      g.slice(center.x, center.y, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction, false);
+      g.fillPath();
+    }
+  }
+
+  private tickActionCooldown(delta: number): void {
+    if (this.actionCooldownMs <= 0) return;
+    this.actionCooldownMs = Math.max(0, this.actionCooldownMs - delta);
+    this.drawActionCooldown();
+    if (this.actionCooldownMs <= 0) this.refreshActionButtons();
+  }
+
+  private refreshActionButtons(): void {
+    const movable = this.canMove();
+    for (const button of this.controlButtons) button.setAlpha(movable ? 1 : 0.4);
+    this.updateHoseButton();
+    this.updateSprayButton();
+  }
+
   private canMove(): boolean {
     return this.phase === "firefighting" && !this.gameOver;
   }
 
   private movePlayer(dRow: number, dCol: number): void {
-    if (!this.canMove()) return;
+    if (this.onCooldown || !this.canMove()) return;
 
     const player = this.players[this.activePlayerIndex];
     if (!player) return;
@@ -1323,6 +1388,7 @@ export class GameScene extends Phaser.Scene {
     this.playerLabels.get(this.activePlayerIndex)?.setPosition(markerX, markerY);
     this.drawHoses();
 
+    this.startActionCooldown();
     this.recordFrame(`${player.name} moved`);
 
     if (this.isAnyPlayerOnFlame()) {
@@ -1346,7 +1412,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    if (this.gameOver) return;
+    if (this.gameOver) {
+      if (this.onCooldown) {
+        this.actionCooldownMs = 0;
+        this.cooldownGraphics?.clear();
+      }
+      return;
+    }
+    this.tickActionCooldown(delta);
 
     this.phaseTimerMs -= delta;
     if (this.phaseTimerMs > 0) {

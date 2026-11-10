@@ -15,6 +15,9 @@ export const DEFAULT_BUTTON_FONT_SIZE = 24;
 export const DEFAULT_BUTTON_SPACING = 50;
 export const DEFAULT_FIREFIGHTING_DURATION_S = 30;
 export const DEFAULT_SPREAD_DIRECTIONS = 4;
+export const DEFAULT_ACTION_DURATION_S = 1;
+export const MIN_ACTION_DURATION_S = 0.5;
+export const MAX_ACTION_DURATION_S = 5;
 export const DEFAULT_EDIT_MAPS_BEFORE_PLAY = false;
 export const DEFAULT_GENERATION_STEP_DELAY_MS = 20;
 export const DEFAULT_PLAYER_COUNT = 1;
@@ -49,6 +52,7 @@ export interface GameParams {
   buttonSpacing: number;
   firefightingDurationSeconds: number;
   spreadDirections: number;
+  actionDurationSeconds: number;
   editMapsBeforePlay: boolean;
   generationStepDelayMs: number;
   doorCount: number;
@@ -74,6 +78,7 @@ const BASE_DEFAULTS: GameParams = {
   buttonSpacing: DEFAULT_BUTTON_SPACING,
   firefightingDurationSeconds: DEFAULT_FIREFIGHTING_DURATION_S,
   spreadDirections: DEFAULT_SPREAD_DIRECTIONS,
+  actionDurationSeconds: DEFAULT_ACTION_DURATION_S,
   editMapsBeforePlay: DEFAULT_EDIT_MAPS_BEFORE_PLAY,
   generationStepDelayMs: DEFAULT_GENERATION_STEP_DELAY_MS,
   doorCount: DEFAULT_DOOR_COUNT,
@@ -120,6 +125,7 @@ function isGameParams(value: unknown): value is GameParams {
     typeof candidate["buttonSpacing"] === "number" &&
     typeof candidate["firefightingDurationSeconds"] === "number" &&
     typeof candidate["spreadDirections"] === "number" &&
+    typeof candidate["actionDurationSeconds"] === "number" &&
     typeof candidate["editMapsBeforePlay"] === "boolean" &&
     typeof candidate["generationStepDelayMs"] === "number" &&
     typeof candidate["doorCount"] === "number" &&
@@ -192,6 +198,10 @@ export function createSettingsGui(onChange?: () => void): GUI {
   const spreadDirectionsController = gui
     .add(gameSettings, "spreadDirections", 1, 4, 1)
     .name("Flame spread directions")
+    .onChange(() => onChange?.());
+  const actionDurationController = gui
+    .add(gameSettings, "actionDurationSeconds", MIN_ACTION_DURATION_S, MAX_ACTION_DURATION_S, 0.1)
+    .name("Action duration (s)")
     .onChange(() => onChange?.());
   const editMapsBeforePlayController = gui
     .add(gameSettings, "editMapsBeforePlay")
@@ -283,6 +293,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     gameSettings.buttonSpacing = preset.buttonSpacing;
     gameSettings.firefightingDurationSeconds = preset.firefightingDurationSeconds;
     gameSettings.spreadDirections = preset.spreadDirections;
+    gameSettings.actionDurationSeconds = preset.actionDurationSeconds;
     gameSettings.editMapsBeforePlay = preset.editMapsBeforePlay;
     gameSettings.generationStepDelayMs = preset.generationStepDelayMs;
     gameSettings.doorCount = preset.doorCount;
@@ -305,6 +316,7 @@ export function createSettingsGui(onChange?: () => void): GUI {
     spacingController.updateDisplay();
     firefightingDurationController.updateDisplay();
     spreadDirectionsController.updateDisplay();
+    actionDurationController.updateDisplay();
     editMapsBeforePlayController.updateDisplay();
     generationStepDelayController.updateDisplay();
     doorCountController.updateDisplay();

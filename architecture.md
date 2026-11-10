@@ -187,6 +187,12 @@ Presets are named snapshots of the whole `GameParams` object, validated with
 preset (`STANDARD_PRESET`) is merged in at load time and excluded when saving. It is also
 the initial value of `gameSettings`, so new games start with the standard settings.
 
+`GameScene` implements `actionDurationSeconds` as a single global cooldown timer
+(`actionCooldownMs`): each action handler returns early while it is running and restarts
+it on success, `update()` ticks it down, and `drawActionCooldown` paints the dimming and
+the wedge overlay on one shared `Graphics` object (depth above the buttons, which are
+destroyed and recreated on every `layout()`).
+
 ## Testing
 
 - **Unit tests** (`npm run test:unit`, Vitest) cover `mapGeneration.ts` directly —
