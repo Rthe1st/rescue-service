@@ -205,3 +205,11 @@ the initial value of `gameSettings`, so new games start with the standard settin
 - Every push additionally triggers a Cloudflare Pages deployment and a check that the
   deployed page loads with no console errors (`.github/workflows/cloudflare-pages-check.yml`,
   `scripts/check-deployment.mjs`).
+- **Build checks** (`.github/workflows/build-checks.yml`) run `typecheck`, `lint` and
+  `build` on every push/PR, then serve the production build with `vite preview` and run
+  the same `scripts/check-deployment.mjs` console-error check against it. Unlike the
+  Cloudflare deployment check this needs no secrets, so it also covers Dependabot PRs
+  (which get no Actions secrets) and catches toolchain upgrades that break the build.
+  `check-deployment.mjs` uses the same sandbox-Chromium fallback as
+  `playwright.config.ts`, and ignores a 404 for `/favicon.ico` (the game ships none;
+  Cloudflare Pages serves `index.html` for it but `vite preview` returns 404).

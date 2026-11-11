@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 
 const url = process.argv[2];
@@ -6,13 +7,27 @@ if (!url) {
   process.exit(1);
 }
 
-const browser = await chromium.launch();
+// Same fallback as playwright.config.ts: use the sandbox's pre-installed
+// Chromium when it exists, otherwise Playwright's own downloaded browser.
+const sandboxChromium = process.env["PLAYWRIGHT_BROWSERS_PATH"]
+  ? `${process.env["PLAYWRIGHT_BROWSERS_PATH"]}/chromium`
+  : undefined;
+const executablePath =
+  sandboxChromium && existsSync(sandboxChromium) ? sandboxChromium : undefined;
+
+const browser = await chromium.launch({ executablePath });
 const page = await browser.newPage();
 
 const errors = [];
 
 page.on("console", (msg) => {
   if (msg.type() === "error") {
+    // The game ships no favicon. Cloudflare Pages answers /favicon.ico with
+    // index.html, but a local `vite preview` returns 404 for it; that isn't
+    // a problem with the build, so don't count it.
+    if (new URL(msg.location().url || url, url).pathname === "/favicon.ico") {
+      return;
+    }
     errors.push(`console.error: ${msg.text()}`);
   }
 });
