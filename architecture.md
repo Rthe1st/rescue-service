@@ -202,6 +202,9 @@ the initial value of `gameSettings`, so new games start with the standard settin
   pre-installed Chromium directly (via `PLAYWRIGHT_BROWSERS_PATH`) when present, since
   its pinned revision can lag behind the one this project's Playwright version expects
   to download; CI is unaffected, as it always installs a matching browser fresh.
+- **Lint/typecheck/build** (`npm run lint`, `npm run typecheck`, `npm run build`) run on
+  every push and PR via `.github/workflows/lint.yml`. It needs no secrets, so it is the
+  check that exercises toolchain bumps on Dependabot PRs.
 - Every push additionally triggers a Cloudflare Pages deployment and a check that the
   deployed page loads with no console errors (`.github/workflows/cloudflare-pages-check.yml`,
   `scripts/check-deployment.mjs`).
