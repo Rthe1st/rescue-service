@@ -1,0 +1,46 @@
+name: Static Checks
+
+# Typecheck, lint and production build. These run independently of the
+# Cloudflare Pages deployment workflow (which also builds) because that one
+# needs repository secrets that Dependabot-triggered runs don't receive, so
+# without this job a toolchain bump (TypeScript, ESLint, Vite, ...) could
+# break typechecking, linting or the build without any CI check noticing.
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: static-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
