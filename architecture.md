@@ -202,6 +202,10 @@ the initial value of `gameSettings`, so new games start with the standard settin
   pre-installed Chromium directly (via `PLAYWRIGHT_BROWSERS_PATH`) when present, since
   its pinned revision can lag behind the one this project's Playwright version expects
   to download; CI is unaffected, as it always installs a matching browser fresh.
+- **Static checks** (`.github/workflows/static-checks.yml`) run `npm run typecheck`,
+  `npm run lint` and `npm run build` on every push/PR. They are separate from the
+  deployment workflow below so toolchain bumps are still verified on Dependabot PRs,
+  which don't receive the Cloudflare secrets that deployment needs.
 - Every push additionally triggers a Cloudflare Pages deployment and a check that the
   deployed page loads with no console errors (`.github/workflows/cloudflare-pages-check.yml`,
   `scripts/check-deployment.mjs`).

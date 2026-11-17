@@ -8,6 +8,13 @@ updates:
       npm-dependencies:
         patterns:
           - "*"
+    ignore:
+      # typescript-eslint (8.73.0 at time of writing) only supports
+      # typescript <6.1.0, so a TypeScript 7 bump makes `npm ci` fail with
+      # ERESOLVE and blocks the whole grouped update. Remove this once
+      # typescript-eslint's peer range includes TypeScript 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
