@@ -202,6 +202,17 @@ the initial value of `gameSettings`, so new games start with the standard settin
   pre-installed Chromium directly (via `PLAYWRIGHT_BROWSERS_PATH`) when present, since
   its pinned revision can lag behind the one this project's Playwright version expects
   to download; CI is unaffected, as it always installs a matching browser fresh.
+- **Production build smoke test** (`tests/production-build.spec.ts`, the `production`
+  Playwright project, also run by `npm run test:layout`) builds the app with `vite build`,
+  serves it with `vite preview` on port 4174, loads it, starts a game and fails on any
+  page error, console error, failed request or HTTP error. The layout tests only use the
+  dev server, so this is what catches a toolchain bump (Vite/Rolldown, TypeScript,
+  Phaser, ...) that builds cleanly but breaks the bundled game at runtime, including on
+  Dependabot PRs, which can't run the Cloudflare deployment check.
+- **Static checks** (`.github/workflows/static-checks.yml`) run `npm run typecheck`,
+  `npm run lint` and `npm run build` on every push/PR. They are separate from the
+  deployment workflow below so toolchain bumps are still verified on Dependabot PRs,
+  which don't receive the Cloudflare secrets that deployment needs.
 - Every push additionally triggers a Cloudflare Pages deployment and a check that the
   deployed page loads with no console errors (`.github/workflows/cloudflare-pages-check.yml`,
   `scripts/check-deployment.mjs`).
