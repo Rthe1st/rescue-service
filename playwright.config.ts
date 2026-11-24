@@ -18,18 +18,37 @@ export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
   reporter: "list",
-  use: {
-    baseURL: "http://localhost:4173",
-  },
-  webServer: {
-    command: "npm run dev -- --port 4173 --strictPort",
-    url: "http://localhost:4173",
-    reuseExistingServer: !process.env["CI"],
-  },
+  webServer: [
+    {
+      command: "npm run dev -- --port 4173 --strictPort",
+      url: "http://localhost:4173",
+      reuseExistingServer: !process.env["CI"],
+    },
+    {
+      // Production bundle, for tests/production-build.spec.ts.
+      command: "npm run build && npx vite preview --port 4174 --strictPort",
+      url: "http://localhost:4174",
+      reuseExistingServer: !process.env["CI"],
+    },
+  ],
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], launchOptions: { executablePath } },
+      testIgnore: /production-build\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:4173",
+        launchOptions: { executablePath },
+      },
+    },
+    {
+      name: "production",
+      testMatch: /production-build\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:4174",
+        launchOptions: { executablePath },
+      },
     },
   ],
 });
